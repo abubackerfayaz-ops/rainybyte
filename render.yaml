@@ -2,16 +2,11 @@ services:
   - type: web
     name: rainy-byte
     runtime: node
-    buildCommand: npm install && npm run build
-    startCommand: bash start.sh
-    autoDeploy: true
-    plan: free
+    startCommand: yarn start
     healthCheckPath: /
     envVars:
       - key: NODE_ENV
         value: production
-      - key: NODE_VERSION
-        value: "20"
       - key: MONGODB_URI
         sync: false
       - key: NEXT_TELEMETRY_DISABLED

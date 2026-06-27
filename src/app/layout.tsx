@@ -3,6 +3,7 @@ import { Sora, Inter, Space_Grotesk } from "next/font/google";
 import { ThemeProvider } from "@/lib/theme-provider";
 import { QueryProvider } from "@/lib/query-provider";
 import { AuthProvider } from "@/lib/auth-context";
+import { UnitProvider } from "@/lib/unit-context";
 import "./globals.css";
 
 const sora = Sora({
@@ -100,7 +101,7 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col">
         <ThemeProvider>
           <QueryProvider>
-            <AuthProvider>{children}</AuthProvider>
+            <AuthProvider><UnitProvider>{children}</UnitProvider></AuthProvider>
           </QueryProvider>
         </ThemeProvider>
       </body>

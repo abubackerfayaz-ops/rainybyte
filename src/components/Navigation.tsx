@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import { Search, MapPin, Bell, Settings, User, LogOut, Moon, Sun, Thermometer, X, Check, ChevronRight } from 'lucide-react';
 import { useTheme } from '@/lib/theme-provider';
 import { useAuth } from '@/lib/auth-context';
+import { useUnit } from '@/lib/unit-context';
 import AuthModal from './AuthModal';
 
 interface NavigationProps {
@@ -14,8 +15,6 @@ interface NavigationProps {
   onSuggestionClick: (s: any) => void;
   onSearchBlur: () => void;
   locationName: string;
-  unit?: 'C' | 'F';
-  onUnitChange?: (u: 'C' | 'F') => void;
 }
 
 interface Notification {
@@ -36,10 +35,11 @@ const mockNotifications: Notification[] = [
 export default function Navigation({
   searchQuery, onSearchChange, suggestions,
   showSuggestions, onSuggestionClick, onSearchBlur,
-  locationName, unit: externalUnit, onUnitChange,
+  locationName,
 }: NavigationProps) {
   const { theme, toggleTheme } = useTheme();
   const { user, logout } = useAuth();
+  const { unit, setUnit } = useUnit();
   const ref = useRef<HTMLDivElement>(null);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -48,10 +48,7 @@ export default function Navigation({
   const [showPreferencesModal, setShowPreferencesModal] = useState(false);
   const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
-  const [localUnit, setLocalUnit] = useState<'C' | 'F'>('C');
   const [notifications, setNotifications] = useState<Notification[]>(mockNotifications);
-  const unit = externalUnit ?? localUnit;
-  const setUnit = onUnitChange ?? setLocalUnit;
   const notifRef = useRef<HTMLDivElement>(null);
   const settingsRef = useRef<HTMLDivElement>(null);
   const profileRef = useRef<HTMLDivElement>(null);
