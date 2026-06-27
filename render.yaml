@@ -4,8 +4,13 @@ services:
     runtime: node
     buildCommand: npm install && npm run build
     startCommand: npm start
+    healthCheckPath: /
     envVars:
       - key: NODE_ENV
         value: production
+      - key: NODE_VERSION
+        value: "22"
       - key: MONGODB_URI
         sync: false
+      - key: NEXT_TELEMETRY_DISABLED
+        value: "1"
