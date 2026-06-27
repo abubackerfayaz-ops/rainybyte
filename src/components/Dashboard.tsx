@@ -58,8 +58,8 @@ export default function Dashboard() {
     try {
       const url = nameQuery ? `/api/weather?q=${encodeURIComponent(nameQuery)}` : `/api/weather?lat=${latitude}&lon=${longitude}`;
       const res = await fetch(url);
-      if (!res.ok) throw new Error('Failed to retrieve weather intelligence');
       const data = await res.json();
+      if (!res.ok) throw new Error(data.message || data.error || 'Failed to retrieve weather intelligence');
       setWeatherData(data);
       if (data.location) { setLat(data.location.lat); setLon(data.location.lon); }
     } catch (err: any) {

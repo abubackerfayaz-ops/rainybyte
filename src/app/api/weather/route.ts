@@ -133,11 +133,14 @@ function selectBestModel(lat: number, lon: number): string {
   return 'ecmwf_ifs_hres';
 }
 
-async function fetchWithTimeout(url: string, timeout = 8000) {
+async function fetchWithTimeout(url: string, timeout = 15000) {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeout);
   try {
-    const res = await fetch(url, { signal: controller.signal });
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: { 'User-Agent': 'RainyByte/1.0' },
+    });
     clearTimeout(id);
     return res;
   } catch {
@@ -147,24 +150,30 @@ async function fetchWithTimeout(url: string, timeout = 8000) {
 }
 
 async function fetchEnsembleData(lat: number, lon: number) {
-  const url = `https://ensemble-api.open-meteo.com/v1/ensemble?latitude=${lat}&longitude=${lon}&hourly=temperature_2m,precipitation,precipitation_probability,wind_speed_10m,pressure_msl&forecast_days=7`;
-  const res = await fetchWithTimeout(url);
-  if (!res?.ok) return null;
-  return res.json();
+  try {
+    const url = `https://ensemble-api.open-meteo.com/v1/ensemble?latitude=${lat}&longitude=${lon}&hourly=temperature_2m,precipitation,precipitation_probability,wind_speed_10m,pressure_msl&forecast_days=3`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(15000), headers: { 'User-Agent': 'RainyByte/1.0' } });
+    if (!res.ok) return null;
+    return res.json();
+  } catch { return null; }
 }
 
 async function fetchMarineData(lat: number, lon: number) {
-  const url = `https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lon}&hourly=wave_height,wave_direction,wave_period,swell_wave_height,swell_wave_direction,swell_wave_period,wind_wave_height,wind_wave_direction&daily=wave_height_max,wave_direction_dominant,wave_period_max,swell_wave_height_max,swell_wave_direction_dominant,swell_wave_period_max&forecast_days=7`;
-  const res = await fetchWithTimeout(url);
-  if (!res?.ok) return null;
-  return res.json();
+  try {
+    const url = `https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lon}&hourly=wave_height,wave_direction,wave_period,swell_wave_height,swell_wave_direction,swell_wave_period,wind_wave_height,wind_wave_direction&daily=wave_height_max,wave_direction_dominant,wave_period_max&forecast_days=3`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(15000), headers: { 'User-Agent': 'RainyByte/1.0' } });
+    if (!res.ok) return null;
+    return res.json();
+  } catch { return null; }
 }
 
 async function fetchClimateNormals(lat: number, lon: number) {
-  const url = `https://climate-api.open-meteo.com/v1/climate?latitude=${lat}&longitude=${lon}&start_date=1991-01-01&end_date=2020-12-31&models=EC_Earth3P_HR&daily=temperature_2m_mean,temperature_2m_max,temperature_2m_min,precipitation_sum`;
-  const res = await fetchWithTimeout(url, 10000);
-  if (!res?.ok) return null;
-  return res.json();
+  try {
+    const url = `https://climate-api.open-meteo.com/v1/climate?latitude=${lat}&longitude=${lon}&start_date=1991-01-01&end_date=2020-12-31&models=EC_Earth3P_HR&daily=temperature_2m_mean,temperature_2m_max,temperature_2m_min,precipitation_sum`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(15000), headers: { 'User-Agent': 'RainyByte/1.0' } });
+    if (!res.ok) return null;
+    return res.json();
+  } catch { return null; }
 }
 
 async function fetchSpecificModel(modelKey: string, lat: number, lon: number) {
@@ -241,19 +250,21 @@ export async function GET(request: Request) {
     // ========================
     // PRIMARY FORECAST (best_match)
     // ========================
-    const forecastParams = [
-      `latitude=${lat}`,
-      `longitude=${lon}`,
-      'current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,rain,showers,snowfall,weather_code,cloud_cover,pressure_msl,surface_pressure,wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index,visibility',
-      'hourly=temperature_2m,relative_humidity_2m,dew_point_2m,apparent_temperature,precipitation_probability,precipitation,rain,weather_code,pressure_msl,surface_pressure,wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index,visibility,soil_temperature_0_to_7cm,soil_moisture_0_to_7cm,et0_fao_evapotranspiration,vapour_pressure_deficit,cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high,lightning_potential',
-      'daily=weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,sunrise,sunset,daylight_duration,uv_index_max,uv_index_clear_sky_max,precipitation_sum,precipitation_probability_max,precipitation_hours,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant,et0_fao_evapotranspiration,shortwave_radiation_sum',
-      'timezone=auto',
-      'forecast_days=16',
-      'cell_selection=land'
-    ].join('&');
-    const forecastUrl = `https://api.open-meteo.com/v1/forecast?${forecastParams}`;
-    const forecastRes = await fetchWithTimeout(forecastUrl, 10000);
-    if (!forecastRes?.ok) throw new Error('Primary forecast provider failed');
+    const params = new URLSearchParams({
+      latitude: String(lat),
+      longitude: String(lon),
+      current: 'temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,wind_direction_10m,uv_index',
+      hourly: 'temperature_2m,relative_humidity_2m,precipitation_probability,precipitation,weather_code,wind_speed_10m',
+      daily: 'temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,weather_code',
+      timezone: 'auto',
+      forecast_days: '3',
+    });
+    const forecastUrl = `https://api.open-meteo.com/v1/forecast?${params}`;
+    const forecastRes = await fetch(forecastUrl, { signal: AbortSignal.timeout(20000), headers: { 'User-Agent': 'RainyByte/1.0' } });
+    if (!forecastRes.ok) {
+      const errText = await forecastRes.text().catch(() => 'unknown');
+      throw new Error(`Forecast API: ${forecastRes.status} ${errText}`);
+    }
     const weatherData = await forecastRes.json();
 
     // ========================
@@ -635,10 +646,11 @@ export async function GET(request: Request) {
     });
 
   } catch (error: any) {
-    console.error('Weather API error:', error);
+    console.error('Weather API error:', error?.message || error);
     return NextResponse.json({
-      error: 'Failed to retrieve climate intelligence data',
-      message: error.message || 'Internal server error',
+      error: 'Failed to retrieve weather intelligence data',
+      message: error?.message || 'Internal server error',
+      stack: process.env.NODE_ENV === 'development' ? error?.stack : undefined,
     }, { status: 500 });
   }
 }
