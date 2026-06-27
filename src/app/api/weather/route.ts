@@ -4,7 +4,94 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
 const cache = new Map<string, { data: any; time: number }>();
-const CACHE_TTL = 5 * 60 * 1000; // 5 min
+const CACHE_TTL = 30 * 60 * 1000; // 30 min
+
+async function fetchMetNo(lat: number, lon: number) {
+  const url = `https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=${lat}&lon=${lon}`;
+  const res = await fetch(url, {
+    signal: AbortSignal.timeout(15000),
+    headers: { 'User-Agent': 'RainyByte/1.0 rainybyte.onrender.com' },
+  });
+  if (!res.ok) return null;
+  return res.json();
+}
+
+function metNoToCurrent(data: any): any {
+  if (!data?.properties?.timeseries?.length) return null;
+  const now = data.properties.timeseries[0].data.instant.details;
+  const next1 = data.properties.timeseries[0].data.next_1_hours?.details;
+  const next6 = data.properties.timeseries[0].data.next_6_hours?.summary;
+  const symbol = next6?.symbol_code || 'partlycloudy_night';
+  return {
+    temperature_2m: now.air_temperature,
+    relative_humidity_2m: now.relative_humidity,
+    apparent_temperature: now.air_temperature,
+    precipitation: next1?.precipitation_amount || 0,
+    rain: next1?.precipitation_amount || 0,
+    weather_code: symbol.includes('rain') ? 61 : symbol.includes('snow') ? 71 : symbol.includes('fog') ? 45 : symbol.includes('cloud') ? 3 : symbol.includes('sun') || symbol.includes('clear') ? 0 : 2,
+    cloud_cover: now.cloud_area_fraction || 0,
+    pressure_msl: now.air_pressure_at_sea_level,
+    wind_speed_10m: now.wind_speed,
+    wind_direction_10m: now.wind_from_direction,
+    wind_gusts_10m: now.wind_gust || 0,
+    uv_index: now.ultraviolet_index_clear_sky || 0,
+    visibility: 10000,
+    snowfall: 0,
+  };
+}
+
+function metNoToHourly(data: any): any {
+  if (!data?.properties?.timeseries) return null;
+  const times = data.properties.timeseries.slice(0, 48);
+  return {
+    time: times.map((t: any) => t.time),
+    temperature_2m: times.map((t: any) => t.data.instant.details.air_temperature),
+    relative_humidity_2m: times.map((t: any) => t.data.instant.details.relative_humidity),
+    precipitation_probability: times.map(() => 30),
+    precipitation: times.map((t: any) => t.data.next_1_hours?.details?.precipitation_amount || 0),
+    weather_code: times.map((t: any) => {
+      const s = t.data.next_6_hours?.summary?.symbol_code || 'partlycloudy_night';
+      return s.includes('rain') ? 61 : s.includes('snow') ? 71 : s.includes('fog') ? 45 : s.includes('cloud') ? 3 : 0;
+    }),
+    wind_speed_10m: times.map((t: any) => t.data.instant.details.wind_speed),
+    cloud_cover: times.map((t: any) => t.data.instant.details.cloud_area_fraction || 0),
+    apparent_temperature: times.map((t: any) => t.data.instant.details.air_temperature),
+  };
+}
+
+function metNoToDaily(data: any): any {
+  if (!data?.properties?.timeseries) return null;
+  const days = new Map<string, any[]>();
+  data.properties.timeseries.forEach((t: any) => {
+    const day = t.time.slice(0, 10);
+    if (!days.has(day)) days.set(day, []);
+    days.get(day)!.push(t);
+  });
+  const result: any[] = [];
+  days.forEach((entries, day) => {
+    const temps = entries.map((e: any) => e.data.instant.details.air_temperature);
+    const rains = entries.map((e: any) => e.data.next_1_hours?.details?.precipitation_amount || 0);
+    const symbols = entries.map((e: any) => e.data.next_6_hours?.summary?.symbol_code || '');
+    const mainSymbol = symbols.find(s => s.includes('rain')) || symbols.find(s => s.includes('cloud')) || symbols[0] || 'partlycloudy_night';
+    result.push({
+      time: day,
+      temperature_2m_max: Math.max(...temps),
+      temperature_2m_min: Math.min(...temps),
+      precipitation_sum: rains.reduce((a: number, b: number) => a + b, 0),
+      weather_code: mainSymbol.includes('rain') ? 61 : mainSymbol.includes('snow') ? 71 : 0,
+    });
+  });
+  return {
+    time: result.map(r => r.time),
+    temperature_2m_max: result.map(r => r.temperature_2m_max),
+    temperature_2m_min: result.map(r => r.temperature_2m_min),
+    precipitation_sum: result.map(r => r.precipitation_sum),
+    weather_code: result.map(r => r.weather_code),
+    sunrise: result.map(() => '06:00'),
+    sunset: result.map(() => '18:00'),
+    precipitation_probability_max: result.map(() => 30),
+  };
+}
 
 interface WeatherModelInfo {
   key: string;
@@ -260,24 +347,25 @@ export async function GET(request: Request) {
     // PRIMARY FORECAST (best_match)
     // ========================
     let weatherData: any;
-    // Try primary forecast URL
-    const fullUrl = 'https://api.open-meteo.com/v1/forecast?' + [
+    const omUrl = 'https://api.open-meteo.com/v1/forecast?' + [
       `latitude=${lat}`, `longitude=${lon}`,
       'current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,rain,snowfall,weather_code,cloud_cover,pressure_msl,wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index,visibility',
       'hourly=temperature_2m,relative_humidity_2m,dew_point_2m,apparent_temperature,precipitation_probability,precipitation,weather_code,cloud_cover,pressure_msl,wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index,visibility,vapour_pressure_deficit',
       'daily=weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,sunrise,sunset,precipitation_sum,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max,uv_index_max',
       'timezone=auto', 'forecast_days=7', 'cell_selection=land',
     ].join('&');
-    let forecastRes = await fetch(fullUrl, { signal: AbortSignal.timeout(20000), headers: { 'User-Agent': 'RainyByte/1.0' } });
-    if (!forecastRes.ok) {
-      // Fallback: minimal request
-      const minimalUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&hourly=temperature_2m,precipitation_probability,weather_code&daily=temperature_2m_max,temperature_2m_min,weather_code,precipitation_sum&timezone=auto&forecast_days=3`;
-      forecastRes = await fetch(minimalUrl, { signal: AbortSignal.timeout(20000), headers: { 'User-Agent': 'RainyByte/1.0' } });
-      if (!forecastRes.ok) {
-        const errText = await forecastRes.text().catch(() => 'unknown');
-        const err = JSON.parse(errText);
-        throw new Error(err?.error ? `Open-Meteo: ${err.reason || err.error}` : errText);
-      }
+    let forecastRes = await fetch(omUrl, { signal: AbortSignal.timeout(15000), headers: { 'User-Agent': 'RainyByte/1.0' } });
+    if (forecastRes.ok) {
+      weatherData = await forecastRes.json();
+    } else {
+      // Fallback: Met.no (no rate limits)
+      const metNo = await fetchMetNo(lat, lon);
+      if (!metNo) throw new Error('Weather services unavailable. Try again later.');
+      weatherData = {
+        current: metNoToCurrent(metNo),
+        hourly: metNoToHourly(metNo),
+        daily: metNoToDaily(metNo),
+      };
     }
     weatherData = await forecastRes.json();
 
