@@ -3,6 +3,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { Search, MapPin, Bell, Settings, User, LogOut, Moon, Sun, Thermometer, X, Check, ChevronRight } from 'lucide-react';
 import { useTheme } from '@/lib/theme-provider';
+import { useAuth } from '@/lib/auth-context';
+import AuthModal from './AuthModal';
 
 interface NavigationProps {
   searchQuery: string;
@@ -37,6 +39,7 @@ export default function Navigation({
   locationName, unit: externalUnit, onUnitChange,
 }: NavigationProps) {
   const { theme, toggleTheme } = useTheme();
+  const { user, logout } = useAuth();
   const ref = useRef<HTMLDivElement>(null);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -44,6 +47,7 @@ export default function Navigation({
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showPreferencesModal, setShowPreferencesModal] = useState(false);
   const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
+  const [showAuthModal, setShowAuthModal] = useState(false);
   const [localUnit, setLocalUnit] = useState<'C' | 'F'>('C');
   const [notifications, setNotifications] = useState<Notification[]>(mockNotifications);
   const unit = externalUnit ?? localUnit;
@@ -306,15 +310,18 @@ export default function Navigation({
           <button
             className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold transition-opacity hover:opacity-80"
             style={{
-              background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+              background: user ? 'linear-gradient(135deg, #f97316, #ea580c)' : 'linear-gradient(135deg, #6366f1, #8b5cf6)',
               color: 'white',
               fontFamily: "'Plus Jakarta Sans', sans-serif",
             }}
-            onClick={() => { setShowProfile(prev => !prev); setShowNotifications(false); setShowSettings(false); }}
+            onClick={() => {
+              if (!user) { setShowAuthModal(true); return; }
+              setShowProfile(prev => !prev); setShowNotifications(false); setShowSettings(false);
+            }}
           >
-            J
+            {user ? user.initials : '?'}
           </button>
-          {showProfile && (
+          {showProfile && user && (
             <div
               className="absolute top-full right-0 mt-3 w-56 rounded-2xl overflow-hidden"
               style={{
@@ -325,8 +332,8 @@ export default function Navigation({
               }}
             >
               <div className="px-4 py-3 border-b border-white/[0.06]">
-                <p className="text-sm font-semibold text-white" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Guest User</p>
-                <p className="text-xs mt-0.5" style={{ color: '#71717a' }}>guest@rainybyte.app</p>
+                <p className="text-sm font-semibold text-white" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{user.username}</p>
+                <p className="text-xs mt-0.5" style={{ color: '#71717a' }}>{user.email}</p>
               </div>
               <div className="p-2">
                 <button
@@ -360,7 +367,7 @@ export default function Navigation({
       </div>
 
       {/* Profile Modal */}
-      {showProfileModal && (
+      {showProfileModal && user && (
         <div
           className="fixed inset-0 z-[100] flex items-center justify-center"
           style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)' }}
@@ -386,21 +393,21 @@ export default function Navigation({
                 <div
                   className="w-14 h-14 rounded-full flex items-center justify-center text-lg font-bold"
                   style={{
-                    background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+                    background: 'linear-gradient(135deg, #f97316, #ea580c)',
                     color: 'white',
                     fontFamily: "'Plus Jakarta Sans', sans-serif",
                   }}
-                >J</div>
+                >{user.initials}</div>
                 <div>
-                  <p className="text-base font-semibold text-white" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Guest User</p>
-                  <p className="text-xs mt-0.5" style={{ color: '#71717a' }}>guest@rainybyte.app</p>
+                  <p className="text-base font-semibold text-white" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{user.username}</p>
+                  <p className="text-xs mt-0.5" style={{ color: '#71717a' }}>{user.email}</p>
                   <p className="text-[10px] mt-1" style={{ color: '#52525b' }}>Joined June 2026</p>
                 </div>
               </div>
               <div className="grid grid-cols-3 gap-2">
                 {[
-                  { label: 'Saved', value: '5' },
-                  { label: 'Alerts', value: '3' },
+                  { label: 'Saved', value: String(user.savedLocations?.length || 0) },
+                  { label: 'Records', value: String(user.climateRecords?.length || 0) },
                   { label: 'Searches', value: '24' },
                 ].map(s => (
                   <div key={s.label} className="text-center py-2.5 rounded-xl" style={{ background: 'rgba(255,255,255,0.04)' }}>
@@ -545,6 +552,7 @@ export default function Navigation({
               </button>
               <button
                 onClick={() => {
+                  logout();
                   setShowSignOutConfirm(false);
                   setShowProfileModal(false);
                   setShowPreferencesModal(false);
