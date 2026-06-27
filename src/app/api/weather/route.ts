@@ -4,197 +4,136 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
 const cache = new Map<string, { data: any; time: number }>();
-const CACHE_TTL = 30 * 60 * 1000; // 30 min
+const CACHE_TTL = 30 * 60 * 1000;
 
-async function fetchMetNo(lat: number, lon: number) {
-  const url = `https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=${lat}&lon=${lon}`;
-  const res = await fetch(url, {
-    signal: AbortSignal.timeout(15000),
-    headers: { 'User-Agent': 'RainyByte/1.0 rainybyte.onrender.com' },
-  });
-  if (!res.ok) return null;
-  return res.json();
+interface NormalizedForecast {
+  current: Record<string, any>;
+  hourly: Record<string, any>;
+  daily: Record<string, any>;
 }
 
-function metNoToCurrent(data: any): any {
-  if (!data?.properties?.timeseries?.length) return { temperature_2m: 20, relative_humidity_2m: 50, apparent_temperature: 20, precipitation: 0, weather_code: 0, cloud_cover: 50, pressure_msl: 1013, wind_speed_10m: 5, wind_direction_10m: 180, wind_gusts_10m: 8, uv_index: 1, visibility: 10000, snowfall: 0 };
-  const now = data.properties.timeseries[0].data.instant.details;
-  const next1 = data.properties.timeseries[0].data.next_1_hours?.details;
-  const next6 = data.properties.timeseries[0].data.next_6_hours?.summary;
-  const symbol = next6?.symbol_code || 'partlycloudy_night';
-  return {
-    temperature_2m: now.air_temperature,
-    relative_humidity_2m: now.relative_humidity,
-    apparent_temperature: now.air_temperature,
-    precipitation: next1?.precipitation_amount || 0,
-    rain: next1?.precipitation_amount || 0,
-    weather_code: symbol.includes('rain') ? 61 : symbol.includes('snow') ? 71 : symbol.includes('fog') ? 45 : symbol.includes('cloud') ? 3 : symbol.includes('sun') || symbol.includes('clear') ? 0 : 2,
-    cloud_cover: now.cloud_area_fraction || 0,
-    pressure_msl: now.air_pressure_at_sea_level,
-    wind_speed_10m: now.wind_speed,
-    wind_direction_10m: now.wind_from_direction,
-    wind_gusts_10m: now.wind_gust || 0,
-    uv_index: now.ultraviolet_index_clear_sky || 0,
-    visibility: 10000,
-    snowfall: 0,
-  };
+// ── Provider adapters ─────────────────────────────────────
+
+async function fetchOpenMeteo(lat: number, lon: number): Promise<NormalizedForecast | null> {
+  try {
+    const url = 'https://api.open-meteo.com/v1/forecast?' + [
+      `latitude=${lat}`, `longitude=${lon}`,
+      'current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,rain,snowfall,weather_code,cloud_cover,pressure_msl,wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index,visibility',
+      'hourly=temperature_2m,relative_humidity_2m,dew_point_2m,apparent_temperature,precipitation_probability,precipitation,weather_code,cloud_cover,pressure_msl,wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index,visibility,vapour_pressure_deficit',
+      'daily=weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,sunrise,sunset,precipitation_sum,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max,uv_index_max',
+      'timezone=auto', 'forecast_days=7', 'cell_selection=land',
+    ].join('&');
+    const res = await fetch(url, { signal: AbortSignal.timeout(15000), headers: { 'User-Agent': 'RainyByte/1.0' } });
+    if (!res.ok) return null;
+    const raw = await res.json();
+    if (!raw?.hourly?.time?.length || !raw?.daily?.time?.length) return null;
+    return raw as NormalizedForecast;
+  } catch { return null; }
 }
 
-function metNoToHourly(data: any): any {
-  if (!data?.properties?.timeseries?.length) return { time: [], temperature_2m: [], relative_humidity_2m: [], precipitation_probability: [], precipitation: [], weather_code: [], wind_speed_10m: [], cloud_cover: [], apparent_temperature: [] };
-  const times = data.properties.timeseries.slice(0, 48);
-  return {
-    time: times.map((t: any) => t.time),
-    temperature_2m: times.map((t: any) => t.data.instant.details.air_temperature),
-    relative_humidity_2m: times.map((t: any) => t.data.instant.details.relative_humidity),
-    precipitation_probability: times.map(() => 30),
-    precipitation: times.map((t: any) => t.data.next_1_hours?.details?.precipitation_amount || 0),
-    weather_code: times.map((t: any) => {
-      const s = t.data.next_6_hours?.summary?.symbol_code || 'partlycloudy_night';
-      return s.includes('rain') ? 61 : s.includes('snow') ? 71 : s.includes('fog') ? 45 : s.includes('cloud') ? 3 : 0;
-    }),
-    wind_speed_10m: times.map((t: any) => t.data.instant.details.wind_speed),
-    cloud_cover: times.map((t: any) => t.data.instant.details.cloud_area_fraction || 0),
-    apparent_temperature: times.map((t: any) => t.data.instant.details.air_temperature),
-  };
-}
-
-function metNoToDaily(data: any): any {
-  if (!data?.properties?.timeseries?.length) return { time: [], temperature_2m_max: [], temperature_2m_min: [], precipitation_sum: [], weather_code: [], sunrise: [], sunset: [], precipitation_probability_max: [], apparent_temperature_max: [], apparent_temperature_min: [], wind_speed_10m_max: [], wind_gusts_10m_max: [], uv_index_max: [], wind_direction_10m_dominant: [], daylight_duration: [], et0_fao_evapotranspiration: [], shortwave_radiation_sum: [], precipitation_hours: [] };
-  const days = new Map<string, any[]>();
-  data.properties.timeseries.forEach((t: any) => {
-    const day = t.time.slice(0, 10);
-    if (!days.has(day)) days.set(day, []);
-    days.get(day)!.push(t);
-  });
-  const result: any[] = [];
-  days.forEach((entries, day) => {
-    const temps = entries.map((e: any) => e.data.instant.details.air_temperature);
-    const rains = entries.map((e: any) => e.data.next_1_hours?.details?.precipitation_amount || 0);
-    const symbols = entries.map((e: any) => e.data.next_6_hours?.summary?.symbol_code || '');
-    const mainSymbol = symbols.find(s => s.includes('rain')) || symbols.find(s => s.includes('cloud')) || symbols[0] || 'partlycloudy_night';
-    result.push({
-      time: day,
-      temperature_2m_max: Math.max(...temps),
-      temperature_2m_min: Math.min(...temps),
-      precipitation_sum: rains.reduce((a: number, b: number) => a + b, 0),
-      weather_code: mainSymbol.includes('rain') ? 61 : mainSymbol.includes('snow') ? 71 : 0,
+async function fetchMetNo(lat: number, lon: number): Promise<NormalizedForecast | null> {
+  try {
+    const url = `https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=${lat}&lon=${lon}`;
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(15000),
+      headers: { 'User-Agent': 'RainyByte/1.0 rainybyte.onrender.com' },
     });
-  });
-  return {
-    time: result.map(r => r.time),
-    temperature_2m_max: result.map(r => r.temperature_2m_max),
-    temperature_2m_min: result.map(r => r.temperature_2m_min),
-    precipitation_sum: result.map(r => r.precipitation_sum),
-    weather_code: result.map(r => r.weather_code),
-    sunrise: result.map(() => '06:00'),
-    sunset: result.map(() => '18:00'),
-    precipitation_probability_max: result.map(() => 30),
-  };
+    if (!res.ok) return null;
+    const raw = await res.json();
+    const ts = raw?.properties?.timeseries;
+    if (!ts?.length) return null;
+
+    const now = ts[0].data.instant.details;
+    const next1 = ts[0].data.next_1_hours?.details;
+    const next6 = ts[0].data.next_6_hours?.summary;
+    const symbol = next6?.symbol_code || 'partlycloudy_night';
+    const wmo = (s: string) => s.includes('rain') ? 61 : s.includes('snow') ? 71 : s.includes('fog') ? 45 : s.includes('cloud') ? 3 : 0;
+
+    const hourly = {
+      time: ts.slice(0, 48).map((t: any) => t.time),
+      temperature_2m: ts.slice(0, 48).map((t: any) => t.data.instant.details.air_temperature),
+      relative_humidity_2m: ts.slice(0, 48).map((t: any) => t.data.instant.details.relative_humidity),
+      apparent_temperature: ts.slice(0, 48).map((t: any) => t.data.instant.details.air_temperature),
+      precipitation_probability: Array(48).fill(30),
+      precipitation: ts.slice(0, 48).map((t: any) => t.data.next_1_hours?.details?.precipitation_amount || 0),
+      weather_code: ts.slice(0, 48).map((t: any) => wmo(t.data.next_6_hours?.summary?.symbol_code || 'partlycloudy_night')),
+      wind_speed_10m: ts.slice(0, 48).map((t: any) => t.data.instant.details.wind_speed),
+      cloud_cover: ts.slice(0, 48).map((t: any) => t.data.instant.details.cloud_area_fraction || 0),
+    };
+
+    const dayMap = new Map<string, any[]>();
+    ts.forEach((t: any) => {
+      const day = t.time.slice(0, 10);
+      if (!dayMap.has(day)) dayMap.set(day, []);
+      dayMap.get(day)!.push(t);
+    });
+    const dayResult: any[] = [];
+    dayMap.forEach((entries, day) => {
+      const temps = entries.map((e: any) => e.data.instant.details.air_temperature);
+      const rains = entries.map((e: any) => e.data.next_1_hours?.details?.precipitation_amount || 0);
+      const syms = entries.map((e: any) => e.data.next_6_hours?.summary?.symbol_code || '');
+      const main = syms.find((s: string) => s.includes('rain')) || syms.find((s: string) => s.includes('cloud')) || syms[0] || 'partlycloudy_night';
+      dayResult.push({
+        time: day, temperature_2m_max: Math.max(...temps), temperature_2m_min: Math.min(...temps),
+        precipitation_sum: rains.reduce((a: number, b: number) => a + b, 0),
+        weather_code: wmo(main),
+      });
+    });
+
+    return {
+      current: {
+        temperature_2m: now.air_temperature,
+        relative_humidity_2m: now.relative_humidity,
+        apparent_temperature: now.air_temperature,
+        precipitation: next1?.precipitation_amount || 0,
+        rain: next1?.precipitation_amount || 0,
+        snowfall: 0,
+        weather_code: wmo(symbol),
+        cloud_cover: now.cloud_area_fraction || 0,
+        pressure_msl: now.air_pressure_at_sea_level,
+        wind_speed_10m: now.wind_speed,
+        wind_direction_10m: now.wind_from_direction,
+        wind_gusts_10m: now.wind_gust || 0,
+        uv_index: now.ultraviolet_index_clear_sky || 0,
+        visibility: 10000,
+      },
+      hourly,
+      daily: {
+        time: dayResult.map((r) => r.time),
+        temperature_2m_max: dayResult.map((r) => r.temperature_2m_max),
+        temperature_2m_min: dayResult.map((r) => r.temperature_2m_min),
+        precipitation_sum: dayResult.map((r) => r.precipitation_sum),
+        weather_code: dayResult.map((r) => r.weather_code),
+        sunrise: dayResult.map(() => '06:00'),
+        sunset: dayResult.map(() => '18:00'),
+        precipitation_probability_max: dayResult.map(() => 30),
+        apparent_temperature_max: dayResult.map((r) => r.temperature_2m_max),
+        apparent_temperature_min: dayResult.map((r) => r.temperature_2m_min),
+        wind_speed_10m_max: dayResult.map(() => 0),
+        wind_gusts_10m_max: dayResult.map(() => 0),
+        uv_index_max: dayResult.map(() => 0),
+      },
+    };
+  } catch { return null; }
 }
+
+// ── Model registry ────────────────────────────────────────
 
 interface WeatherModelInfo {
-  key: string;
-  name: string;
-  source: string;
-  accuracy: number;
-  description: string;
-  region: string;
-  resolution: string;
-  updateFreq: string;
+  key: string; name: string; source: string; accuracy: number;
+  description: string; region: string; resolution: string; updateFreq: string;
 }
 
 const MODELS: Record<string, WeatherModelInfo> = {
-  ecmwf_ifs_hres: {
-    key: 'ecmwf_ifs_hres',
-    name: 'ECMWF IFS HRES',
-    source: 'European Centre for Medium-Range Weather Forecasts',
-    accuracy: 95,
-    description: 'Gold-standard global model at native 9 km resolution. Best for mid-latitude synoptic systems and tropical cyclones.',
-    region: 'Global',
-    resolution: '9 km (O1280 grid)',
-    updateFreq: 'Every 6 hours'
-  },
-  ecmwf_aifs: {
-    key: 'ecmwf_aifs',
-    name: 'ECMWF AIFS',
-    source: 'ECMWF AI Forecast System (Data-Driven)',
-    accuracy: 94,
-    description: 'State-of-the-art ML weather model. Excels at large-scale patterns, jet streams, and temperature anomalies.',
-    region: 'Global',
-    resolution: '0.25° (~28 km)',
-    updateFreq: 'Every 6 hours'
-  },
-  noaa_gfs: {
-    key: 'noaa_gfs',
-    name: 'NOAA GFS + HRRR',
-    source: 'National Oceanic and Atmospheric Administration',
-    accuracy: 91,
-    description: 'US global model blended with hourly HRRR (3 km) updates for North America. Best for convective storms.',
-    region: 'Global (HRRR: US Conus)',
-    resolution: '13 km (HRRR: 3 km)',
-    updateFreq: 'Every 6 hours (HRRR: hourly)'
-  },
-  dwd_icon: {
-    key: 'dwd_icon',
-    name: 'DWD ICON',
-    source: 'Deutscher Wetterdienst (Germany)',
-    accuracy: 92,
-    description: 'German non-hydrostatic global model. Exceptional for European regional details and convective dynamics.',
-    region: 'Global (EU: 13 km ICON-EU, 2 km ICON-D2)',
-    resolution: '13 km global / 2 km Europe',
-    updateFreq: 'Every 6 hours (ICON-D2: 3 hours)'
-  },
-  jma_gsm: {
-    key: 'jma_gsm',
-    name: 'JMA GSM',
-    source: 'Japan Meteorological Agency',
-    accuracy: 89,
-    description: 'Japanese global model. Highly accurate for East Asia, typhoon tracking, and tropical Pacific systems.',
-    region: 'Global (best for Asia-Pacific)',
-    resolution: '0.25° (~25 km)',
-    updateFreq: 'Every 6 hours'
-  },
-  meteo_france_arome: {
-    key: 'meteo_france_arome',
-    name: 'Météo-France AROME',
-    source: 'Météo-France',
-    accuracy: 93,
-    description: 'Ultra-high resolution (1.3 km) model for France and Western Europe. Best for local convection and fog.',
-    region: 'France / Western Europe',
-    resolution: '1.3 km',
-    updateFreq: 'Every 3 hours'
-  },
-  ukmo_mogreps: {
-    key: 'ukmo_mogreps',
-    name: 'UK Met Office MOGREPS',
-    source: 'UK Met Office',
-    accuracy: 90,
-    description: 'UK ensemble system. Reliable for North Atlantic weather systems and UK regional forecasts.',
-    region: 'Global (UK: 2 km)',
-    resolution: '20 km global / 2 km UK',
-    updateFreq: 'Every 6 hours'
-  },
-  gem_global: {
-    key: 'gem_global',
-    name: 'Environment Canada GEM',
-    source: 'Environment and Climate Change Canada',
-    accuracy: 88,
-    description: 'Canadian global model with HRDPS (2.5 km) for North America. Good for Arctic and polar systems.',
-    region: 'Global (NA: 2.5 km HRDPS)',
-    resolution: '25 km (HRDPS: 2.5 km)',
-    updateFreq: 'Every 6 hours'
-  },
-  bom_access: {
-    key: 'bom_access',
-    name: 'BOM ACCESS',
-    source: 'Australian Bureau of Meteorology',
-    accuracy: 87,
-    description: 'Australian global model. Best for Southern Hemisphere, Australia, and maritime forecasts.',
-    region: 'Global (best for Australia/Oceania)',
-    resolution: '12 km (Australia: 4 km)',
-    updateFreq: 'Every 6 hours'
-  }
+  ecmwf_ifs_hres: { key: 'ecmwf_ifs_hres', name: 'ECMWF IFS HRES', source: 'European Centre for Medium-Range Weather Forecasts', accuracy: 95, description: 'Gold-standard global model at native 9 km resolution. Best for mid-latitude synoptic systems and tropical cyclones.', region: 'Global', resolution: '9 km (O1280 grid)', updateFreq: 'Every 6 hours' },
+  ecmwf_aifs: { key: 'ecmwf_aifs', name: 'ECMWF AIFS', source: 'ECMWF AI Forecast System (Data-Driven)', accuracy: 94, description: 'State-of-the-art ML weather model. Excels at large-scale patterns, jet streams, and temperature anomalies.', region: 'Global', resolution: '0.25° (~28 km)', updateFreq: 'Every 6 hours' },
+  noaa_gfs: { key: 'noaa_gfs', name: 'NOAA GFS + HRRR', source: 'National Oceanic and Atmospheric Administration', accuracy: 91, description: 'US global model blended with hourly HRRR (3 km) updates for North America. Best for convective storms.', region: 'Global (HRRR: US Conus)', resolution: '13 km (HRRR: 3 km)', updateFreq: 'Every 6 hours (HRRR: hourly)' },
+  dwd_icon: { key: 'dwd_icon', name: 'DWD ICON', source: 'Deutscher Wetterdienst (Germany)', accuracy: 92, description: 'German non-hydrostatic global model. Exceptional for European regional details and convective dynamics.', region: 'Global (EU: 13 km ICON-EU, 2 km ICON-D2)', resolution: '13 km global / 2 km Europe', updateFreq: 'Every 6 hours (ICON-D2: 3 hours)' },
+  jma_gsm: { key: 'jma_gsm', name: 'JMA GSM', source: 'Japan Meteorological Agency', accuracy: 89, description: 'Japanese global model. Highly accurate for East Asia, typhoon tracking, and tropical Pacific systems.', region: 'Global (best for Asia-Pacific)', resolution: '0.25° (~25 km)', updateFreq: 'Every 6 hours' },
+  meteo_france_arome: { key: 'meteo_france_arome', name: 'Météo-France AROME', source: 'Météo-France', accuracy: 93, description: 'Ultra-high resolution (1.3 km) model for France and Western Europe. Best for local convection and fog.', region: 'France / Western Europe', resolution: '1.3 km', updateFreq: 'Every 3 hours' },
+  ukmo_mogreps: { key: 'ukmo_mogreps', name: 'UK Met Office MOGREPS', source: 'UK Met Office', accuracy: 90, description: 'UK ensemble system. Reliable for North Atlantic weather systems and UK regional forecasts.', region: 'Global (UK: 2 km)', resolution: '20 km global / 2 km UK', updateFreq: 'Every 6 hours' },
+  gem_global: { key: 'gem_global', name: 'Environment Canada GEM', source: 'Environment and Climate Change Canada', accuracy: 88, description: 'Canadian global model with HRDPS (2.5 km) for North America. Good for Arctic and polar systems.', region: 'Global (NA: 2.5 km HRDPS)', resolution: '25 km (HRDPS: 2.5 km)', updateFreq: 'Every 6 hours' },
+  bom_access: { key: 'bom_access', name: 'BOM ACCESS', source: 'Australian Bureau of Meteorology', accuracy: 87, description: 'Australian global model. Best for Southern Hemisphere, Australia, and maritime forecasts.', region: 'Global (best for Australia/Oceania)', resolution: '12 km (Australia: 4 km)', updateFreq: 'Every 6 hours' },
 };
 
 function getWmoIcon(code: number): { text: string; icon: string } {
@@ -227,16 +166,10 @@ async function fetchWithTimeout(url: string, timeout = 15000) {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeout);
   try {
-    const res = await fetch(url, {
-      signal: controller.signal,
-      headers: { 'User-Agent': 'RainyByte/1.0' },
-    });
+    const res = await fetch(url, { signal: controller.signal, headers: { 'User-Agent': 'RainyByte/1.0' } });
     clearTimeout(id);
     return res;
-  } catch {
-    clearTimeout(id);
-    return null;
-  }
+  } catch { clearTimeout(id); return null; }
 }
 
 async function fetchEnsembleData(lat: number, lon: number) {
@@ -257,15 +190,6 @@ async function fetchMarineData(lat: number, lon: number) {
   } catch { return null; }
 }
 
-async function fetchClimateNormals(lat: number, lon: number) {
-  try {
-    const url = `https://climate-api.open-meteo.com/v1/climate?latitude=${lat}&longitude=${lon}&start_date=1991-01-01&end_date=2020-12-31&models=EC_Earth3P_HR&daily=temperature_2m_mean,temperature_2m_max,temperature_2m_min,precipitation_sum`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(15000), headers: { 'User-Agent': 'RainyByte/1.0' } });
-    if (!res.ok) return null;
-    return res.json();
-  } catch { return null; }
-}
-
 async function fetchSpecificModel(modelKey: string, lat: number, lon: number) {
   const baseUrls: Record<string, string> = {
     ecmwf_ifs_hres: `https://api.open-meteo.com/v1/ecmwf?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,precipitation,weather_code&hourly=temperature_2m,precipitation_probability,precipitation&forecast_days=7`,
@@ -280,6 +204,8 @@ async function fetchSpecificModel(modelKey: string, lat: number, lon: number) {
   if (!res?.ok) return null;
   return res.json();
 }
+
+// ── GET handler ───────────────────────────────────────────
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -325,9 +251,7 @@ export async function GET(request: Request) {
       lon = parseFloat(lonStr);
       const revUrl = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=10&addressdetails=1`;
       try {
-        const revRes = await fetch(revUrl, {
-          headers: { 'User-Agent': 'RainyByteWeatherApp/1.0' }
-        });
+        const revRes = await fetch(revUrl, { headers: { 'User-Agent': 'RainyByteWeatherApp/1.0' } });
         if (revRes.ok) {
           const revData = await revRes.json();
           const city = revData.address.city || revData.address.town || revData.address.village || revData.address.suburb || 'Selected Area';
@@ -343,106 +267,44 @@ export async function GET(request: Request) {
       }
     }
 
-    // ========================
-    // PRIMARY FORECAST (best_match)
-    // ========================
-    let weatherData: any;
-    // Primary: Open-Meteo (richer data, when credits available)
-    const omUrl = 'https://api.open-meteo.com/v1/forecast?' + [
-      `latitude=${lat}`, `longitude=${lon}`,
-      'current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,rain,snowfall,weather_code,cloud_cover,pressure_msl,wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index,visibility',
-      'hourly=temperature_2m,relative_humidity_2m,dew_point_2m,apparent_temperature,precipitation_probability,precipitation,weather_code,cloud_cover,pressure_msl,wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index,visibility,vapour_pressure_deficit',
-      'daily=weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,sunrise,sunset,precipitation_sum,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max,uv_index_max',
-      'timezone=auto', 'forecast_days=7', 'cell_selection=land',
-    ].join('&');
-    const omRes = await fetch(omUrl, { signal: AbortSignal.timeout(15000), headers: { 'User-Agent': 'RainyByte/1.0' } });
-    if (omRes.ok) {
-      weatherData = await omRes.json();
-    } else {
-      // Fallback: Met.no (no rate limits)
-      const metNo = await fetchMetNo(lat, lon);
-      if (!metNo) throw new Error('Weather services unavailable. Try again later.');
-      weatherData = {
-        current: metNoToCurrent(metNo),
-        hourly: metNoToHourly(metNo),
-        daily: metNoToDaily(metNo),
-      };
+    // ── Fetch from providers (try Open-Meteo first) ────
+    let forecast = await fetchOpenMeteo(lat, lon);
+    let providerName = 'Open-Meteo';
+    if (!forecast) {
+      forecast = await fetchMetNo(lat, lon);
+      providerName = 'Met.no';
     }
+    if (!forecast) throw new Error('Weather services unavailable. Try again later.');
 
-    // ========================
-    // ENSEMBLE DATA (probabilistic)
-    // ========================
-    const ensembleData = await fetchEnsembleData(lat, lon);
+    const { current: c, hourly: h, daily: d } = forecast;
 
-    // ========================
-    // MARINE DATA
-    // ========================
-    const marineData = await fetchMarineData(lat, lon);
+    // ── Auxiliary data ─────────────────────────────────
+    const [ensembleData, marineData] = await Promise.all([
+      fetchEnsembleData(lat, lon),
+      fetchMarineData(lat, lon),
+    ]);
 
-    // ========================
-    // AIR QUALITY + POLLEN
-    // ========================
     let aqiData = null;
     const aqiUrl = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lon}&current=european_aqi,us_aqi,pm2_5,pm10,carbon_monoxide,nitrogen_dioxide,sulphur_dioxide,ozone,dust,uv_index,uv_index_clear_sky,alder_pollen,birch_pollen,grass_pollen,mugwort_pollen,olive_pollen,ragweed_pollen`;
-    try {
-      const aqiRes = await fetch(aqiUrl);
-      if (aqiRes.ok) aqiData = await aqiRes.json();
-    } catch { /* graceful fallback */ }
+    try { const r = await fetch(aqiUrl); if (r.ok) aqiData = await r.json(); } catch { /* skip */ }
 
-    // ========================
-    // CLIMATE NORMALS (1991-2020)
-    // ========================
-    const climateData = await fetchClimateNormals(lat, lon);
-
-    // ========================
-    // MODEL COMPARISONS
-    // ========================
+    // ── Model comparisons ──────────────────────────────
     const activeModelKey = selectBestModel(lat, lon);
     const activeModelInfo = MODELS[activeModelKey];
-
-    // Run model-specific queries in parallel
     const modelKeys = Object.keys(MODELS);
-    const modelResponses = await Promise.allSettled(
-      modelKeys.map(key => fetchSpecificModel(key, lat, lon))
-    );
-
+    const modelResponses = await Promise.allSettled(modelKeys.map(key => fetchSpecificModel(key, lat, lon)));
     const modelComparisons = modelKeys.map((key, idx) => {
       const info = MODELS[key];
       const resp = modelResponses[idx];
       if (resp.status !== 'fulfilled' || !resp.value?.hourly) {
-        return {
-          key,
-          name: info.name,
-          accuracy: info.accuracy,
-          description: info.description,
-          available: false,
-          tempTodayMax: null,
-          tempTodayMin: null,
-          rainChanceMax: null,
-        };
+        return { key, name: info.name, accuracy: info.accuracy, description: info.description, available: false, tempTodayMax: null, tempTodayMin: null, rainChanceMax: null };
       }
-      const h = resp.value.hourly;
-      const temps = h.temperature_2m?.slice(0, 24) || [];
-      const rains = h.precipitation_probability?.slice(0, 24) || [];
-      return {
-        key,
-        name: info.name,
-        accuracy: info.accuracy,
-        description: info.description,
-        source: info.source,
-        region: info.region,
-        resolution: info.resolution,
-        updateFreq: info.updateFreq,
-        available: true,
-        tempTodayMax: temps.length ? Math.round(Math.max(...temps)) : null,
-        tempTodayMin: temps.length ? Math.round(Math.min(...temps)) : null,
-        rainChanceMax: rains.length ? Math.max(...rains) : null,
-      };
+      const hh = resp.value.hourly;
+      const temps = hh.temperature_2m?.slice(0, 24) || [];
+      const rains = hh.precipitation_probability?.slice(0, 24) || [];
+      return { key, name: info.name, accuracy: info.accuracy, description: info.description, source: info.source, region: info.region, resolution: info.resolution, updateFreq: info.updateFreq, available: true, tempTodayMax: temps.length ? Math.round(Math.max(...temps)) : null, tempTodayMin: temps.length ? Math.round(Math.min(...temps)) : null, rainChanceMax: rains.length ? Math.max(...rains) : null };
     });
 
-    // ========================
-    // ACCURACY & CONFIDENCE
-    // ========================
     const availableModels = modelComparisons.filter(m => m.available && m.tempTodayMax !== null);
     let avgSpread = 2.5;
     let confidenceScore = 88;
@@ -459,13 +321,7 @@ export async function GET(request: Request) {
       confidenceScore = Math.max(50, Math.min(99, Math.round(avgAccuracy - spreadPenalty)));
     }
 
-    // ========================
-    // PROCESS CURRENT CONDITIONS
-    // ========================
-    const c = weatherData?.current || {};
-    const h = weatherData?.hourly || {};
-    const d = weatherData?.daily || {};
-
+    // ── Current conditions ─────────────────────────────
     const currentCondition = getWmoIcon(c.weather_code ?? 0);
     const dewPoint = h.dew_point_2m?.[0] ?? Math.round(c.temperature_2m - ((100 - c.relative_humidity_2m) / 5));
     const lightningPotential = h.lightning_potential?.[0] ?? (c.cloud_cover > 75 ? Math.round(c.relative_humidity_2m * 0.4) : 0);
@@ -511,76 +367,55 @@ export async function GET(request: Request) {
     const nitrogenDioxide = aqiData?.current?.nitrogen_dioxide ?? null;
     const sulphurDioxide = aqiData?.current?.sulphur_dioxide ?? null;
     const dust = aqiData?.current?.dust ?? null;
+    const pollen = { alder: aqiData?.current?.alder_pollen ?? null, birch: aqiData?.current?.birch_pollen ?? null, grass: aqiData?.current?.grass_pollen ?? null, mugwort: aqiData?.current?.mugwort_pollen ?? null, olive: aqiData?.current?.olive_pollen ?? null, ragweed: aqiData?.current?.ragweed_pollen ?? null };
 
-    const pollen = {
-      alder: aqiData?.current?.alder_pollen ?? null,
-      birch: aqiData?.current?.birch_pollen ?? null,
-      grass: aqiData?.current?.grass_pollen ?? null,
-      mugwort: aqiData?.current?.mugwort_pollen ?? null,
-      olive: aqiData?.current?.olive_pollen ?? null,
-      ragweed: aqiData?.current?.ragweed_pollen ?? null,
-    };
+    // ── Hourly forecast (48h) ──────────────────────────
+    const hourlyForecast = h.time.slice(0, 48).map((time: string, idx: number) => ({
+      time: new Date(time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      temp: Math.round(h.temperature_2m[idx] ?? 0),
+      feelsLike: Math.round(h.apparent_temperature[idx] ?? 0),
+      rainChance: h.precipitation_probability[idx] || 0,
+      humidity: h.relative_humidity_2m[idx] ?? 50,
+      dewPoint: Math.round(h.dew_point_2m?.[idx] ?? 0),
+      pressure: h.pressure_msl?.[idx] ?? 1013,
+      windSpeed: Math.round(h.wind_speed_10m[idx] ?? 0),
+      windGust: Math.round(h.wind_gusts_10m?.[idx] ?? 0),
+      uv: Math.round(h.uv_index?.[idx] ?? 0),
+      visibility: Math.round((h.visibility?.[idx] ?? 10000) / 1000),
+      cloudCover: h.cloud_cover[idx] ?? 0,
+      vapourPressureDeficit: Math.round((h.vapour_pressure_deficit?.[idx] ?? 0) * 100) / 100,
+    }));
 
-    // ========================
-    // HOURLY FORECAST (48h)
-    // ========================
-    const hourlyTimes = h?.time;
-    const hourlyForecast = Array.isArray(hourlyTimes)
-      ? hourlyTimes.slice(0, 48).map((time: string, idx: number) => ({
-          time: new Date(time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          temp: Math.round(h?.temperature_2m?.[idx] ?? 0),
-          feelsLike: Math.round(h?.apparent_temperature?.[idx] ?? 0),
-          rainChance: h?.precipitation_probability?.[idx] || 0,
-          humidity: h?.relative_humidity_2m?.[idx] ?? 50,
-          dewPoint: Math.round(h?.dew_point_2m?.[idx] ?? 0),
-          pressure: h?.pressure_msl?.[idx] ?? 1013,
-          windSpeed: Math.round(h?.wind_speed_10m?.[idx] ?? 0),
-          windGust: Math.round(h?.wind_gusts_10m?.[idx] ?? 0),
-          uv: Math.round(h?.uv_index?.[idx] ?? 0),
-          visibility: Math.round((h?.visibility?.[idx] ?? 10000) / 1000),
-          cloudCover: h?.cloud_cover?.[idx] ?? 0,
-          vapourPressureDeficit: Math.round((h?.vapour_pressure_deficit?.[idx] ?? 0) * 100) / 100,
-        }))
-      : [];
+    // ── Daily forecast ─────────────────────────────────
+    const dailyForecast = d.time.map((time: string, idx: number) => {
+      const code = d.weather_code[idx] ?? 0;
+      const cond = getWmoIcon(code);
+      return {
+        date: new Date(time).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }),
+        tempMax: Math.round(d.temperature_2m_max[idx] ?? 0),
+        tempMin: Math.round(d.temperature_2m_min[idx] ?? 0),
+        feelsMax: Math.round(d.apparent_temperature_max?.[idx] ?? 0),
+        feelsMin: Math.round(d.apparent_temperature_min?.[idx] ?? 0),
+        rainChance: d.precipitation_probability_max[idx] || 0,
+        rainSum: Math.round((d.precipitation_sum[idx] ?? 0) * 10) / 10,
+        precipitationHours: d.precipitation_hours?.[idx] ?? 0,
+        windSpeedMax: Math.round(d.wind_speed_10m_max?.[idx] ?? 0),
+        windGustMax: Math.round(d.wind_gusts_10m_max?.[idx] ?? 0),
+        windDirection: d.wind_direction_10m_dominant?.[idx] ?? 0,
+        uvMax: Math.round(d.uv_index_max?.[idx] ?? 0),
+        daylightDuration: Math.round((d.daylight_duration?.[idx] ?? 43200) / 60),
+        et0: Math.round((d.et0_fao_evapotranspiration?.[idx] ?? 0) * 10) / 10,
+        shortwaveRadiation: Math.round((d.shortwave_radiation_sum?.[idx] ?? 0) * 10) / 10,
+        summary: cond.text,
+        icon: cond.icon,
+      };
+    });
 
-    // ========================
-    // DAILY FORECAST (16 days)
-    // ========================
-    const dailyTimes = d?.time;
-    const dailyForecast = Array.isArray(dailyTimes)
-      ? dailyTimes.map((time: string, idx: number) => {
-          const code = d?.weather_code?.[idx] ?? 0;
-          const cond = getWmoIcon(code);
-          return {
-            date: new Date(time).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }),
-            tempMax: Math.round(d?.temperature_2m_max?.[idx] ?? 0),
-            tempMin: Math.round(d?.temperature_2m_min?.[idx] ?? 0),
-            feelsMax: Math.round(d?.apparent_temperature_max?.[idx] ?? 0),
-            feelsMin: Math.round(d?.apparent_temperature_min?.[idx] ?? 0),
-            rainChance: d?.precipitation_probability_max?.[idx] || 0,
-            rainSum: Math.round((d?.precipitation_sum?.[idx] ?? 0) * 10) / 10,
-            precipitationHours: d?.precipitation_hours?.[idx] ?? 0,
-            windSpeedMax: Math.round(d?.wind_speed_10m_max?.[idx] ?? 0),
-            windGustMax: Math.round(d?.wind_gusts_10m_max?.[idx] ?? 0),
-            windDirection: d?.wind_direction_10m_dominant?.[idx] ?? 0,
-            uvMax: Math.round(d?.uv_index_max?.[idx] ?? 0),
-            daylightDuration: Math.round((d?.daylight_duration?.[idx] ?? 43200) / 60),
-            et0: Math.round((d?.et0_fao_evapotranspiration?.[idx] ?? 0) * 10) / 10,
-            shortwaveRadiation: Math.round((d?.shortwave_radiation_sum?.[idx] ?? 0) * 10) / 10,
-            summary: cond.text,
-            icon: cond.icon,
-          };
-        })
-      : [];
-
-    // ========================
-    // AGRICULTURE
-    // ========================
-    const soilMoisture = Math.round((h?.soil_moisture_0_to_7cm?.[0] ?? 0.3) * 100);
-    const soilTemp = Math.round(h?.soil_temperature_0_to_7cm?.[0] ?? 10);
-    const evapotranspiration = Math.round((h?.et0_fao_evapotranspiration?.[0] ?? 2) * 10) / 10;
-    const vapourPressureDeficit = Math.round((h?.vapour_pressure_deficit?.[0] ?? 0.8) * 100) / 100;
-
+    // ── Agriculture ────────────────────────────────────
+    const soilMoisture = Math.round((h.soil_moisture_0_to_7cm?.[0] ?? 0.3) * 100);
+    const soilTemp = Math.round(h.soil_temperature_0_to_7cm?.[0] ?? 10);
+    const evapotranspiration = Math.round((h.et0_fao_evapotranspiration?.[0] ?? 2) * 10) / 10;
+    const vapourPressureDeficit = Math.round((h.vapour_pressure_deficit?.[0] ?? 0.8) * 100) / 100;
     let irrigationAdvice = 'Soil moisture adequate. No irrigation needed.';
     if (soilMoisture < 20) irrigationAdvice = 'CRITICAL: Severe soil moisture deficit. Immediate deep irrigation required.';
     else if (soilMoisture < 35) irrigationAdvice = 'Dry: Supplemental irrigation recommended during early morning or evening to reduce evaporation.';
@@ -588,9 +423,7 @@ export async function GET(request: Request) {
     else if (soilMoisture > 80) irrigationAdvice = 'Saturated: Waterlogging risk. Avoid irrigation until soil drains.';
     const cropFrostRisk = soilTemp < 2 ? 'Extreme' : soilTemp < 5 ? 'High' : soilTemp < 8 ? 'Medium' : 'Low';
 
-    // ========================
-    // ASTRONOMY
-    // ========================
+    // ── Astronomy ──────────────────────────────────────
     const moonPhaseVal = (Math.abs(lon + lat) % 30) / 30;
     let moonPhase = 'New Moon';
     if (moonPhaseVal < 0.05 || moonPhaseVal > 0.95) moonPhase = 'New Moon';
@@ -601,7 +434,6 @@ export async function GET(request: Request) {
     else if (moonPhaseVal < 0.7) moonPhase = 'Waning Gibbous';
     else if (moonPhaseVal < 0.75) moonPhase = 'Third Quarter';
     else moonPhase = 'Waning Crescent';
-
     const planets = [
       { name: 'Venus', visible: lat > -40, time: 'Dusk (West)', magnitude: -4.2 },
       { name: 'Jupiter', visible: true, time: 'Late Night (SE)', magnitude: -2.3 },
@@ -609,40 +441,15 @@ export async function GET(request: Request) {
       { name: 'Saturn', visible: Math.abs(lat) < 60, time: 'Evening (SE)', magnitude: 0.9 },
     ];
 
-    // ========================
-    // TRAVEL SCORES
-    // ========================
+    // ── Travel scores ──────────────────────────────────
     const absLat = Math.abs(lat);
-    const hikingScore = Math.max(1, Math.min(10, Math.round(
-      10 - (current.windSpeed * 0.1) - (current.rain * 2) -
-      (current.temp < 10 ? (10 - current.temp) * 0.4 : 0) -
-      (current.temp > 30 ? (current.temp - 30) * 0.4 : 0) +
-      (current.visibility > 10 ? 1 : 0)
-    )));
-    const beachScore = Math.max(1, Math.min(10, Math.round(
-      (current.temp > 25 ? 9 : current.temp > 20 ? 7 : current.temp > 15 ? 4 : 1) +
-      (current.cloudCover < 20 ? 2 : current.cloudCover < 50 ? 1 : -1) -
-      (current.rain * 3) +
-      (current.windSpeed < 15 ? 1 : 0)
-    )));
-    const drivingScore = Math.max(1, Math.min(10, Math.round(
-      10 - (current.rain * 2.5) -
-      (current.visibility < 5 ? (5 - current.visibility) * 1.5 : 0) -
-      (current.windGust > 50 ? 3 : current.windGust > 35 ? 1 : 0) +
-      (current.condition === 'Clear Sky' || current.condition === 'Partly Cloudy' ? 1 : 0)
-    )));
-    const sailingScore = Math.max(1, Math.min(10, Math.round(
-      (current.windSpeed >= 10 && current.windSpeed <= 22 ? 9 : current.windSpeed < 8 ? 3 : current.windSpeed > 35 ? 1 : 6) -
-      (current.rain * 2) +
-      (current.visibility > 8 ? 1 : 0)
-    )));
-    const skiScore = absLat > 35 && current.temp < 5
-      ? Math.max(1, Math.min(10, Math.round(7 + (current.snow > 0 ? 3 : 0) - (current.rain * 3) + (current.cloudCover < 50 ? 1 : 0))))
-      : 1;
+    const hikingScore = Math.max(1, Math.min(10, Math.round(10 - (current.windSpeed * 0.1) - (current.rain * 2) - (current.temp < 10 ? (10 - current.temp) * 0.4 : 0) - (current.temp > 30 ? (current.temp - 30) * 0.4 : 0) + (current.visibility > 10 ? 1 : 0))));
+    const beachScore = Math.max(1, Math.min(10, Math.round((current.temp > 25 ? 9 : current.temp > 20 ? 7 : current.temp > 15 ? 4 : 1) + (current.cloudCover < 20 ? 2 : current.cloudCover < 50 ? 1 : -1) - (current.rain * 3) + (current.windSpeed < 15 ? 1 : 0))));
+    const drivingScore = Math.max(1, Math.min(10, Math.round(10 - (current.rain * 2.5) - (current.visibility < 5 ? (5 - current.visibility) * 1.5 : 0) - (current.windGust > 50 ? 3 : current.windGust > 35 ? 1 : 0) + (current.condition === 'Clear Sky' || current.condition === 'Partly Cloudy' ? 1 : 0))));
+    const sailingScore = Math.max(1, Math.min(10, Math.round((current.windSpeed >= 10 && current.windSpeed <= 22 ? 9 : current.windSpeed < 8 ? 3 : current.windSpeed > 35 ? 1 : 6) - (current.rain * 2) + (current.visibility > 8 ? 1 : 0))));
+    const skiScore = absLat > 35 && current.temp < 5 ? Math.max(1, Math.min(10, Math.round(7 + (current.snow > 0 ? 3 : 0) - (current.rain * 3) + (current.cloudCover < 50 ? 1 : 0)))) : 1;
 
-    // ========================
-    // SEVERE ALERTS
-    // ========================
+    // ── Alerts ─────────────────────────────────────────
     const alerts: any[] = [];
     if (current.windGust > 70) alerts.push({ id: 'w1', severity: 'Warning', title: 'Extreme Wind Gusts', message: `Damaging wind gusts up to ${current.windGust} km/h detected. Secure property immediately. Travel is dangerous for high-profile vehicles.`, source: activeModelInfo.name });
     else if (current.windGust > 55) alerts.push({ id: 'w1', severity: 'Warning', title: 'High Wind Gust Alert', message: `Strong wind gusts of ${current.windGust} km/h. Secure loose objects and exercise caution.`, source: activeModelInfo.name });
@@ -654,13 +461,9 @@ export async function GET(request: Request) {
     if (current.feelsLike > 38) alerts.push({ id: 'w5', severity: 'Warning', title: 'Extreme Heat Warning', message: `Feels-like temperature of ${current.feelsLike}°C. Risk of heat stroke. Stay hydrated and avoid midday sun.`, source: activeModelInfo.name });
     if (current.feelsLike < -15) alerts.push({ id: 'w6', severity: 'Warning', title: 'Extreme Cold Warning', message: `Wind chill making it feel like ${current.feelsLike}°C. Frostbite risk in minutes.`, source: activeModelInfo.name });
     if (lightningPotential > 60) alerts.push({ id: 'w7', severity: 'Warning', title: 'High Lightning Risk', message: `Elevated lightning potential (${lightningPotential}%). Seek indoor shelter. Avoid open fields and water.`, source: activeModelInfo.name });
-    if (alerts.length === 0) {
-      alerts.push({ id: 'n1', severity: 'Info', title: 'Stable Conditions', message: 'No severe weather expected. Conditions are safe for travel and outdoor activities.', source: 'Rainy Byte Consensus' });
-    }
+    if (alerts.length === 0) alerts.push({ id: 'n1', severity: 'Info', title: 'Stable Conditions', message: 'No severe weather expected. Conditions are safe for travel and outdoor activities.', source: 'Rainy Byte Consensus' });
 
-    // ========================
-    // MARINE DATA
-    // ========================
+    // ── Marine ─────────────────────────────────────────
     let marine = null;
     if (marineData?.hourly) {
       marine = {
@@ -679,9 +482,6 @@ export async function GET(request: Request) {
       };
     }
 
-    // ========================
-    // RESPONSE
-    // ========================
     const responseBody = {
       location: { name: locationName, lat, lon, elevation, timezone, countryCode },
       current: { ...current, comfortIndex, aqi: usAqi },
@@ -695,7 +495,7 @@ export async function GET(request: Request) {
       travel: { hikingScore, beachScore, drivingScore, sailingScore, skiScore },
       marine,
       alerts,
-      dataSources: { primary: 'Open-Meteo Weather Forecast API (best_match)', secondary: modelKeys.filter(k => k !== activeModelKey).map(k => MODELS[k].name), ensemble: 'Open-Meteo Ensemble API', airQuality: 'CAMS (Copernicus Atmosphere Monitoring Service)', pollen: 'CAMS Pollen (alder, birch, grass, mugwort, olive, ragweed)', marine: marine ? 'Open-Meteo Marine API (WAM wave model)' : null, historical: 'ERA5 (1940–present), ERA5-Land (1950–present)', climate: 'CMIP6 HighResMIP (1950–2050)' },
+      dataSources: { primary: providerName, secondary: modelKeys.filter(k => k !== activeModelKey).map(k => MODELS[k].name), ensemble: 'Open-Meteo Ensemble API', airQuality: 'CAMS (Copernicus)', pollen: 'CAMS Pollen', marine: marine ? 'Open-Meteo Marine API' : null, historical: 'ERA5 (1940–present), ERA5-Land (1950–present)', climate: 'CMIP6 HighResMIP (1950–2050)' },
     };
 
     cache.set(cacheKey, { data: responseBody, time: Date.now() });
