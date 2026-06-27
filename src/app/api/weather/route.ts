@@ -462,9 +462,12 @@ export async function GET(request: Request) {
     // ========================
     // PROCESS CURRENT CONDITIONS
     // ========================
-    const c = weatherData?.current || {};
-    const h = weatherData?.hourly || {};
-    const d = weatherData?.daily || {};
+    if (!weatherData?.hourly?.time || !weatherData?.daily?.time) {
+      throw new Error('Incomplete weather data received from provider');
+    }
+    const c = weatherData.current || {};
+    const h = weatherData.hourly || {};
+    const d = weatherData.daily || {};
 
     const currentCondition = getWmoIcon(c.weather_code ?? 0);
     const dewPoint = h.dew_point_2m?.[0] ?? Math.round(c.temperature_2m - ((100 - c.relative_humidity_2m) / 5));
