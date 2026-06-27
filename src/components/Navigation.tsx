@@ -40,19 +40,16 @@ export default function Navigation({
   const ref = useRef<HTMLDivElement>(null);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [showProfile, setShowProfile] = useState(false);
   const [showPreferencesModal, setShowPreferencesModal] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>(mockNotifications);
   const notifRef = useRef<HTMLDivElement>(null);
   const settingsRef = useRef<HTMLDivElement>(null);
-  const profileRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) onSearchBlur();
       if (notifRef.current && !notifRef.current.contains(e.target as Node)) setShowNotifications(false);
       if (settingsRef.current && !settingsRef.current.contains(e.target as Node)) setShowSettings(false);
-      if (profileRef.current && !profileRef.current.contains(e.target as Node)) setShowProfile(false);
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
@@ -167,7 +164,7 @@ export default function Navigation({
           <button
             className="w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200 hover:bg-white/[0.08] relative"
             style={{ color: '#71717a' }}
-            onClick={() => { setShowNotifications(prev => !prev); setShowSettings(false); setShowProfile(false); }}
+            onClick={() => { setShowNotifications(prev => !prev); setShowSettings(false); }}
           >
             <Bell className="w-4 h-4" strokeWidth={1.5} />
             {unreadCount > 0 && (
@@ -233,7 +230,7 @@ export default function Navigation({
           <button
             className="w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200 hover:bg-white/[0.08]"
             style={{ color: '#71717a' }}
-            onClick={() => { setShowSettings(prev => !prev); setShowNotifications(false); setShowProfile(false); }}
+            onClick={() => { setShowSettings(prev => !prev); setShowNotifications(false); }}
           >
             <Settings className="w-4 h-4" strokeWidth={1.5} />
           </button>
@@ -296,44 +293,6 @@ export default function Navigation({
           )}
         </div>
 
-        {/* Avatar */}
-        <div ref={profileRef} className="relative">
-          <button
-            className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold transition-opacity hover:opacity-80"
-            style={{
-              background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
-              color: 'white',
-              fontFamily: "'Plus Jakarta Sans', sans-serif",
-            }}
-            onClick={() => {
-              setShowProfile(prev => !prev); setShowNotifications(false); setShowSettings(false);
-            }}
-          >
-            ?
-          </button>
-          {showProfile && (
-            <div
-              className="absolute top-full right-0 mt-3 w-56 rounded-2xl overflow-hidden"
-              style={{
-                background: 'rgba(9,9,11,0.96)',
-                border: '1px solid rgba(255,255,255,0.1)',
-                backdropFilter: 'blur(24px)',
-                boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
-              }}
-            >
-              <div className="p-2">
-                <button
-                  className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm hover:bg-white/[0.04] transition-colors"
-                  style={{ color: '#d4d4d8' }}
-                  onClick={() => { setShowProfile(false); setShowPreferencesModal(true); }}
-                >
-                  <Settings className="w-4 h-4" style={{ color: '#a1a1aa' }} strokeWidth={1.5} />
-                  Preferences
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
       </div>
 
 

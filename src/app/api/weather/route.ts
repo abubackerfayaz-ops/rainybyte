@@ -12,7 +12,20 @@ interface NormalizedForecast {
   daily: Record<string, any>;
 }
 
-// ── Provider adapters ─────────────────────────────────────
+const fmtTime = (val: string | undefined, fallback = '—'): string => {
+  if (!val) return fallback;
+  if (/^\d{2}:\d{2}$/.test(val)) return val;
+  const d = new Date(val);
+  if (isNaN(d.getTime())) return fallback;
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+};
+
+const fmtDate = (val: string | undefined, fallback = '—'): string => {
+  if (!val) return fallback;
+  const d = new Date(val);
+  if (isNaN(d.getTime())) return fallback;
+  return d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+};
 
 async function fetchOpenMeteo(lat: number, lon: number): Promise<NormalizedForecast | null> {
   try {
@@ -344,8 +357,8 @@ export async function GET(request: Request) {
       rain: c.rain || 0,
       snow: c.snowfall || 0,
       lightningProbability: lightningPotential,
-      sunrise: d.sunrise?.[0] ? new Date(d.sunrise[0]).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '06:00',
-      sunset: d.sunset?.[0] ? new Date(d.sunset[0]).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '18:00',
+      sunrise: fmtTime(d.sunrise?.[0], '06:00'),
+      sunset: fmtTime(d.sunset?.[0], '18:00'),
     };
 
     let comfortIndex = 'Comfortable';
@@ -371,7 +384,7 @@ export async function GET(request: Request) {
 
     // ── Hourly forecast (48h) ──────────────────────────
     const hourlyForecast = h.time.slice(0, 48).map((time: string, idx: number) => ({
-      time: new Date(time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      time: fmtTime(time, time.slice(11, 16)),
       temp: Math.round(h.temperature_2m[idx] ?? 0),
       feelsLike: Math.round(h.apparent_temperature[idx] ?? 0),
       rainChance: h.precipitation_probability[idx] || 0,
@@ -391,7 +404,7 @@ export async function GET(request: Request) {
       const code = d.weather_code[idx] ?? 0;
       const cond = getWmoIcon(code);
       return {
-        date: new Date(time).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }),
+        date: fmtDate(time, time.slice(0, 10)),
         tempMax: Math.round(d.temperature_2m_max[idx] ?? 0),
         tempMin: Math.round(d.temperature_2m_min[idx] ?? 0),
         feelsMax: Math.round(d.apparent_temperature_max?.[idx] ?? 0),

@@ -3,13 +3,24 @@ import { connectDB } from '@/lib/mongodb';
 import AccuracyReport from '@/models/AccuracyReport';
 import Source from '@/models/Source';
 
+const cache = new Map<string, { data: any; time: number }>();
+const CACHE_TTL = 5 * 60 * 1000;
+
 export async function GET() {
   try {
+    const cached = cache.get('latest');
+    if (cached && Date.now() - cached.time < CACHE_TTL) {
+      return NextResponse.json({ reports: cached.data });
+    }
     await connectDB();
-    const reports = await AccuracyReport.find({})
-      .sort({ date: -1 })
-      .limit(100)
-      .lean();
+    const reports = await AccuracyReport.aggregate([
+      { $sort: { date: -1 } },
+      { $group: { _id: '$sourceKey', doc: { $first: '$$ROOT' } } },
+      { $replaceWith: '$doc' },
+      { $sort: { date: -1 } },
+      { $limit: 30 },
+    ]);
+    cache.set('latest', { data: reports, time: Date.now() });
     return NextResponse.json({ reports });
   } catch (error) {
     return NextResponse.json({ error: 'Failed to fetch accuracy reports' }, { status: 500 });
@@ -33,10 +44,15 @@ export async function POST(request: NextRequest) {
       region: region || 'global',
     });
 
-    const allReports = await AccuracyReport.find({ sourceKey }).sort({ date: -1 }).limit(30).lean();
-    const avgAccuracy = Math.round(
-      allReports.reduce((sum, r) => sum + r.overallAccuracy, 0) / allReports.length
-    );
+    const [stats] = await AccuracyReport.aggregate([
+      { $match: { sourceKey } },
+      { $sort: { date: -1 } },
+      { $limit: 30 },
+      { $group: { _id: null, avgAccuracy: { $avg: '$overallAccuracy' }, count: { $sum: 1 } } },
+    ]);
+
+    const avgAccuracy = stats ? Math.round(stats.avgAccuracy) : overallAccuracy;
+    const reportCount = stats?.count ?? 1;
 
     await Source.updateOne(
       { key: sourceKey },
@@ -44,10 +60,13 @@ export async function POST(request: NextRequest) {
         $set: {
           accuracy: avgAccuracy,
           lastAccuracyUpdate: new Date(),
-          reportsCount: allReports.length,
+          reportsCount: reportCount,
         },
       }
     );
+
+    cache.delete('latest');
+    cache.delete('list');
 
     return NextResponse.json({ report, updatedAccuracy: avgAccuracy }, { status: 201 });
   } catch (error) {

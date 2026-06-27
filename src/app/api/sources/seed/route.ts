@@ -18,12 +18,22 @@ const INITIAL_SOURCES = [
 export async function POST() {
   try {
     await connectDB();
-    const existing = await Source.countDocuments();
-    if (existing > 0) {
-      return NextResponse.json({ message: `Database already has ${existing} sources` });
+    let inserted = 0;
+    try {
+      const result = await Source.insertMany(INITIAL_SOURCES, { ordered: false });
+      inserted = result.length;
+    } catch (e: any) {
+      if (e.code === 11000) {
+        inserted = 0;
+      } else {
+        throw e;
+      }
     }
-    await Source.insertMany(INITIAL_SOURCES);
-    return NextResponse.json({ message: `Seeded ${INITIAL_SOURCES.length} sources` }, { status: 201 });
+    return NextResponse.json({
+      message: inserted > 0 ? `Seeded ${inserted} new sources` : `All ${INITIAL_SOURCES.length} sources already exist`,
+      inserted,
+      total: INITIAL_SOURCES.length,
+    }, { status: inserted > 0 ? 201 : 200 });
   } catch (error) {
     return NextResponse.json({ error: 'Failed to seed sources' }, { status: 500 });
   }

@@ -5,7 +5,10 @@ import Source from '@/models/Source';
 export async function GET() {
   try {
     await connectDB();
-    const sources = await Source.find({}).sort({ accuracy: -1 }).lean();
+    const sources = await Source.find({})
+      .sort({ accuracy: -1 })
+      .select('key name type provider region description resolution updateFreq accuracy reportsCount status lastAccuracyUpdate')
+      .lean();
     return NextResponse.json({ sources });
   } catch (error) {
     return NextResponse.json({ error: 'Failed to fetch sources' }, { status: 500 });

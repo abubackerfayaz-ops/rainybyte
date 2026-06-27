@@ -5,53 +5,35 @@ import { motion } from 'framer-motion';
 import {
   Database, Activity, Globe, RefreshCw, AlertTriangle,
   CheckCircle, XCircle, Clock, ArrowUpRight, ArrowDownRight,
-  BarChart3, Target, Zap, Shield,
+  BarChart3, Target, Zap, Shield, Cloud, Wifi, WifiOff,
 } from 'lucide-react';
 
 interface Source {
-  _id: string;
-  key: string;
-  name: string;
-  type: string;
-  provider: string;
-  region: string;
-  description: string;
-  resolution: string;
-  updateFreq: string;
-  accuracy: number;
-  reportsCount: number;
-  status: string;
-  lastAccuracyUpdate: string;
+  _id: string; key: string; name: string; type: string;
+  provider: string; region: string; description: string;
+  resolution: string; updateFreq: string; accuracy: number;
+  reportsCount: number; status: string; lastAccuracyUpdate: string;
 }
 
 interface AccuracyReport {
-  _id: string;
-  sourceKey: string;
-  sourceName: string;
-  overallAccuracy: number;
-  tempAccuracy: number;
-  rainAccuracy: number;
-  windAccuracy: number;
-  date: string;
+  _id: string; sourceKey: string; sourceName: string;
+  overallAccuracy: number; tempAccuracy: number;
+  rainAccuracy: number; windAccuracy: number; date: string;
+}
+
+interface ActiveSource {
+  key: string; name: string; accuracy: number; description: string;
+  available: boolean; tempTodayMax: number | null; source?: string;
+  region?: string; resolution?: string; updateFreq?: string;
 }
 
 const typeLabels: Record<string, string> = {
-  global_model: 'Global Model',
-  regional_model: 'Regional Model',
-  ensemble: 'Ensemble',
-  satellite: 'Satellite',
-  station: 'Station',
-  reanalysis: 'Reanalysis',
+  global_model: 'Global Model', regional_model: 'Regional Model',
+  ensemble: 'Ensemble', satellite: 'Satellite', station: 'Station', reanalysis: 'Reanalysis',
 };
-
 const regionLabels: Record<string, string> = {
-  global: 'Global',
-  north_america: 'North America',
-  europe: 'Europe',
-  asia: 'Asia',
-  australia: 'Australia',
+  global: 'Global', north_america: 'North America', europe: 'Europe', asia: 'Asia', australia: 'Australia',
 };
-
 const fadeUp = {
   hidden: { opacity: 0, y: 12 },
   visible: (i: number) => ({ opacity: 1, y: 0, transition: { duration: 0.3, delay: i * 0.04 } }),
@@ -60,6 +42,8 @@ const fadeUp = {
 export default function SourcesPanel() {
   const [sources, setSources] = useState<Source[]>([]);
   const [reports, setReports] = useState<AccuracyReport[]>([]);
+  const [activeSources, setActiveSources] = useState<ActiveSource[]>([]);
+  const [activeProvider, setActiveProvider] = useState<string>('—');
   const [loading, setLoading] = useState(true);
   const [seeding, setSeeding] = useState(false);
   const [activeReport, setActiveReport] = useState<string | null>(null);
@@ -67,17 +51,17 @@ export default function SourcesPanel() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [srcRes, repRes] = await Promise.all([
+      const [srcRes, repRes, wthRes] = await Promise.all([
         fetch('/api/sources'),
         fetch('/api/sources/accuracy'),
+        fetch('/api/weather?lat=51.5074&lon=-0.1278'),
       ]);
-      if (srcRes.ok) {
-        const srcData = await srcRes.json();
-        setSources(srcData.sources || []);
-      }
-      if (repRes.ok) {
-        const repData = await repRes.json();
-        setReports(repData.reports || []);
+      if (srcRes.ok) { const d = await srcRes.json(); setSources(d.sources || []); }
+      if (repRes.ok) { const d = await repRes.json(); setReports(d.reports || []); }
+      if (wthRes.ok) {
+        const d = await wthRes.json();
+        setActiveProvider(d.dataSources?.primary || '—');
+        setActiveSources(d.modelComparisons || []);
       }
     } catch (err) {
       console.error('Failed to fetch sources data');
@@ -91,9 +75,13 @@ export default function SourcesPanel() {
   const handleSeed = async () => {
     setSeeding(true);
     try {
-      const res = await fetch('/api/sources/seed', { method: 'POST' });
-      const data = await res.json();
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 30000);
+      await fetch('/api/sources/seed', { method: 'POST', signal: controller.signal });
+      clearTimeout(timeout);
       await fetchData();
+    } catch (err) {
+      console.error('Seed failed:', err);
     } finally {
       setSeeding(false);
     }
@@ -102,6 +90,8 @@ export default function SourcesPanel() {
   const bestModel = sources.length > 0
     ? sources.reduce((best, s) => (s.accuracy > best.accuracy ? s : best), sources[0])
     : null;
+
+  const availableCount = activeSources.filter(s => s.available).length;
 
   return (
     <div className="space-y-8">
@@ -122,22 +112,39 @@ export default function SourcesPanel() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <button
-              onClick={handleSeed}
-              disabled={seeding || sources.length > 0}
-              className="px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-white/60 text-xs hover:bg-white/10 disabled:opacity-30 transition-all"
-            >
-              {seeding ? 'Seeding...' : sources.length > 0 ? `${sources.length} loaded` : 'Seed sources'}
+            <button onClick={handleSeed} disabled={seeding}
+              className="px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-white/60 text-xs hover:bg-white/10 disabled:opacity-30 transition-all">
+              {seeding ? 'Seeding...' : 'Seed sources'}
             </button>
-            <button
-              onClick={fetchData}
-              className="p-2 rounded-xl bg-white/5 border border-white/10 text-white/40 hover:text-white/70 transition-all"
-            >
+            <button onClick={fetchData}
+              className="p-2 rounded-xl bg-white/5 border border-white/10 text-white/40 hover:text-white/70 transition-all">
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             </button>
           </div>
         </div>
       </motion.div>
+
+      {/* Active Provider Banner */}
+      {activeProvider !== '—' && (
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
+          className="glass-card p-5 flex items-center gap-4 border-l-2 border-cyan/40">
+          <div className="p-2.5 rounded-xl bg-cyan/10">
+            <Wifi className="w-5 h-5 text-cyan" />
+          </div>
+          <div className="flex-1">
+            <p className="text-sm text-white/60">
+              Currently serving forecast from{' '}
+              <span className="text-white font-medium">{activeProvider}</span>
+            </p>
+            <p className="text-[11px] text-white/25 mt-0.5">
+              {availableCount} of {activeSources.length} models available for comparison
+            </p>
+          </div>
+          <div className="flex items-center gap-2 text-[11px]">
+            <span className="px-2 py-1 rounded-full bg-emerald-500/10 text-emerald-400">Live</span>
+          </div>
+        </motion.div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Sources List */}
@@ -157,97 +164,84 @@ export default function SourcesPanel() {
             </div>
           ) : (
             <div className="space-y-3">
-              {sources.map((source, i) => (
-                <motion.div
-                  key={source.key}
-                  custom={i}
-                  initial="hidden"
-                  animate="visible"
-                  variants={fadeUp}
-                  className="glass-card p-5 hover:border-white/10 transition-all"
-                >
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="flex items-center gap-4 min-w-0">
-                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-                        source.accuracy >= 90 ? 'bg-emerald-500/10 text-emerald-400' :
-                        source.accuracy >= 80 ? 'bg-cyan/10 text-cyan' :
-                        'bg-amber-500/10 text-amber-400'
-                      }`}>
-                        <Globe className="w-5 h-5" />
+              {sources.map((source, i) => {
+                const live = activeSources.find(s => s.key === source.key);
+                return (
+                  <motion.div key={source.key} custom={i} initial="hidden" animate="visible"
+                    variants={fadeUp}
+                    className={`glass-card p-5 transition-all ${live?.available ? 'border-l-2 border-l-emerald-500/30' : 'opacity-60'}`}>
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-4 min-w-0">
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                          source.accuracy >= 90 ? 'bg-emerald-500/10 text-emerald-400' :
+                          source.accuracy >= 80 ? 'bg-cyan/10 text-cyan' : 'bg-amber-500/10 text-amber-400'
+                        }`}>
+                          <Globe className="w-5 h-5" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-medium text-white truncate">{source.name}</p>
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
+                              source.status === 'active' ? 'bg-emerald-500/10 text-emerald-400' :
+                              source.status === 'degraded' ? 'bg-amber-500/10 text-amber-400' : 'bg-rose-500/10 text-rose-400'
+                            }`}>{source.status}</span>
+                            {live?.available && (
+                              <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-cyan/10 text-cyan">active</span>
+                            )}
+                          </div>
+                          <p className="text-xs text-white/30 mt-0.5 truncate">{source.description}</p>
+                          <div className="flex items-center gap-3 mt-1.5 text-[10px] text-white/20">
+                            <span>{typeLabels[source.type] || source.type}</span>
+                            <span>·</span>
+                            <span>{regionLabels[source.region] || source.region}</span>
+                            <span>·</span>
+                            <span>{source.resolution}</span>
+                            <span>·</span>
+                            <span>{source.updateFreq}</span>
+                          </div>
+                        </div>
                       </div>
-                      <div className="min-w-0">
+                      <div className="text-right shrink-0">
                         <div className="flex items-center gap-2">
-                          <p className="text-sm font-medium text-white truncate">{source.name}</p>
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
-                            source.status === 'active' ? 'bg-emerald-500/10 text-emerald-400' :
-                            source.status === 'degraded' ? 'bg-amber-500/10 text-amber-400' :
-                            'bg-rose-500/10 text-rose-400'
-                          }`}>{source.status}</span>
+                          <span className={`text-2xl font-number ${
+                            source.accuracy >= 90 ? 'text-emerald-400' :
+                            source.accuracy >= 80 ? 'text-cyan' : 'text-amber-400'
+                          }`}>{source.accuracy}%</span>
+                          <button onClick={() => setActiveReport(activeReport === source.key ? null : source.key)}
+                            className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/30 hover:text-white/60 transition-all">
+                            <BarChart3 className="w-3.5 h-3.5" />
+                          </button>
                         </div>
-                        <p className="text-xs text-white/30 mt-0.5 truncate">{source.description}</p>
-                        <div className="flex items-center gap-3 mt-1.5 text-[10px] text-white/20">
-                          <span>{typeLabels[source.type] || source.type}</span>
-                          <span>·</span>
-                          <span>{regionLabels[source.region] || source.region}</span>
-                          <span>·</span>
-                          <span>{source.resolution}</span>
-                          <span>·</span>
-                          <span>{source.updateFreq}</span>
-                        </div>
+                        <p className="text-[10px] text-white/20 mt-0.5">{source.reportsCount} reports</p>
                       </div>
                     </div>
-                    <div className="text-right shrink-0">
-                      <div className="flex items-center gap-2">
-                        <span className={`text-2xl font-number ${
-                          source.accuracy >= 90 ? 'text-emerald-400' :
-                          source.accuracy >= 80 ? 'text-cyan' :
-                          'text-amber-400'
-                        }`}>{source.accuracy}%</span>
-                        <button
-                          onClick={() => setActiveReport(activeReport === source.key ? null : source.key)}
-                          className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/30 hover:text-white/60 transition-all"
-                        >
-                          <BarChart3 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                      <p className="text-[10px] text-white/20 mt-0.5">{source.reportsCount} reports</p>
-                    </div>
-                  </div>
 
-                  {/* Accuracy History */}
-                  {activeReport === source.key && (
-                    <motion.div
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: 'auto', opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      className="mt-4 pt-4 border-t border-white/[0.03]"
-                    >
-                      <div className="grid grid-cols-3 gap-3">
-                        {[
-                          { label: 'Temp', key: 'tempAccuracy' as const },
-                          { label: 'Rain', key: 'rainAccuracy' as const },
-                          { label: 'Wind', key: 'windAccuracy' as const },
-                        ].map((m) => {
-                          const sourceReports = reports.filter(r => r.sourceKey === source.key);
-                          const latest = sourceReports[0];
-                          const val = latest ? latest[m.key] : source.accuracy;
-                          return (
-                            <div key={m.label} className="p-3 rounded-xl bg-white/[0.01] border border-white/[0.03] text-center">
-                              <p className="text-[10px] text-white/20 uppercase tracking-wider">{m.label}</p>
-                              <p className="text-lg font-number text-white mt-1">{Math.round(val)}%</p>
-                            </div>
-                          );
-                        })}
-                      </div>
-                      {reports.filter(r => r.sourceKey === source.key).length > 0 && (
-                        <p className="text-[10px] text-white/15 mt-3">
-                          Last report: {new Date(reports.filter(r => r.sourceKey === source.key)[0]?.date).toLocaleDateString()}
-                        </p>
-                      )}
-                    </motion.div>
-                  )}
-                </motion.div>
-              ))}
+                    {activeReport === source.key && (
+                      <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }} className="mt-4 pt-4 border-t border-white/[0.03]">
+                        <div className="grid grid-cols-3 gap-3">
+                          {['tempAccuracy', 'rainAccuracy', 'windAccuracy'].map((k) => {
+                            const r = reports.find(rr => rr.sourceKey === source.key);
+                            const v = r ? r[k as keyof AccuracyReport] : source.accuracy;
+                            const label = { tempAccuracy: 'Temp', rainAccuracy: 'Rain', windAccuracy: 'Wind' }[k];
+                            return (
+                              <div key={k} className="p-3 rounded-xl bg-white/[0.01] border border-white/[0.03] text-center">
+                                <p className="text-[10px] text-white/20 uppercase tracking-wider">{label}</p>
+                                <p className="text-lg font-number text-white mt-1">{Math.round(Number(v))}%</p>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        {reports.some(r => r.sourceKey === source.key) && (
+                          <p className="text-[10px] text-white/15 mt-3">
+                            Last report: {new Date(reports.find(r => r.sourceKey === source.key)!.date).toLocaleDateString()}
+                          </p>
+                        )}
+                      </motion.div>
+                    )}
+                  </motion.div>
+                );
+              })}
             </div>
           )}
         </div>
@@ -291,6 +285,27 @@ export default function SourcesPanel() {
                 <p className="text-xs text-white/20">No data</p>
               )}
             </div>
+
+            {/* Live Status */}
+            {activeSources.length > 0 && (
+              <div className="pt-5 border-t border-white/[0.03] space-y-3">
+                <p className="text-[10px] text-white/30 uppercase tracking-wider">Current Forecast</p>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-white/40">Provider</span>
+                    <span className="text-white font-medium">{activeProvider}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-white/40">Models Available</span>
+                    <span className="text-cyan font-number">{availableCount}/{activeSources.length}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-white/40">Data Sources</span>
+                    <span className="text-emerald-400 font-number">{activeSources.length}</span>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
