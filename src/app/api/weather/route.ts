@@ -347,26 +347,26 @@ export async function GET(request: Request) {
     // PRIMARY FORECAST (best_match)
     // ========================
     let weatherData: any;
-    // Primary: Met.no (no rate limits)
-    const metNo = await fetchMetNo(lat, lon);
-    if (metNo) {
+    // Primary: Open-Meteo (richer data, when credits available)
+    const omUrl = 'https://api.open-meteo.com/v1/forecast?' + [
+      `latitude=${lat}`, `longitude=${lon}`,
+      'current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,rain,snowfall,weather_code,cloud_cover,pressure_msl,wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index,visibility',
+      'hourly=temperature_2m,relative_humidity_2m,dew_point_2m,apparent_temperature,precipitation_probability,precipitation,weather_code,cloud_cover,pressure_msl,wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index,visibility,vapour_pressure_deficit',
+      'daily=weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,sunrise,sunset,precipitation_sum,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max,uv_index_max',
+      'timezone=auto', 'forecast_days=7', 'cell_selection=land',
+    ].join('&');
+    const omRes = await fetch(omUrl, { signal: AbortSignal.timeout(15000), headers: { 'User-Agent': 'RainyByte/1.0' } });
+    if (omRes.ok) {
+      weatherData = await omRes.json();
+    } else {
+      // Fallback: Met.no (no rate limits)
+      const metNo = await fetchMetNo(lat, lon);
+      if (!metNo) throw new Error('Weather services unavailable. Try again later.');
       weatherData = {
         current: metNoToCurrent(metNo),
         hourly: metNoToHourly(metNo),
         daily: metNoToDaily(metNo),
       };
-    } else {
-      // Fallback: Open-Meteo
-      const omUrl = 'https://api.open-meteo.com/v1/forecast?' + [
-        `latitude=${lat}`, `longitude=${lon}`,
-        'current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,rain,snowfall,weather_code,cloud_cover,pressure_msl,wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index,visibility',
-        'hourly=temperature_2m,relative_humidity_2m,dew_point_2m,apparent_temperature,precipitation_probability,precipitation,weather_code,cloud_cover,pressure_msl,wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index,visibility,vapour_pressure_deficit',
-        'daily=weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,sunrise,sunset,precipitation_sum,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max,uv_index_max',
-        'timezone=auto', 'forecast_days=7', 'cell_selection=land',
-      ].join('&');
-      const omRes = await fetch(omUrl, { signal: AbortSignal.timeout(15000), headers: { 'User-Agent': 'RainyByte/1.0' } });
-      if (!omRes.ok) throw new Error('Weather services unavailable. Try again later.');
-      weatherData = await omRes.json();
     }
 
     // ========================
@@ -462,12 +462,9 @@ export async function GET(request: Request) {
     // ========================
     // PROCESS CURRENT CONDITIONS
     // ========================
-    if (!weatherData?.hourly?.time || !weatherData?.daily?.time) {
-      throw new Error('Incomplete weather data received from provider');
-    }
-    const c = weatherData.current || {};
-    const h = weatherData.hourly || {};
-    const d = weatherData.daily || {};
+    const c = weatherData?.current || {};
+    const h = weatherData?.hourly || {};
+    const d = weatherData?.daily || {};
 
     const currentCondition = getWmoIcon(c.weather_code ?? 0);
     const dewPoint = h.dew_point_2m?.[0] ?? Math.round(c.temperature_2m - ((100 - c.relative_humidity_2m) / 5));
@@ -527,56 +524,62 @@ export async function GET(request: Request) {
     // ========================
     // HOURLY FORECAST (48h)
     // ========================
-    const hourlyForecast = weatherData.hourly.time.slice(0, 48).map((time: string, idx: number) => ({
-      time: new Date(time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      temp: Math.round(weatherData.hourly.temperature_2m[idx]),
-      feelsLike: Math.round(weatherData.hourly.apparent_temperature[idx]),
-      rainChance: weatherData.hourly.precipitation_probability[idx] || 0,
-      humidity: weatherData.hourly.relative_humidity_2m[idx],
-      dewPoint: Math.round(weatherData.hourly.dew_point_2m[idx] ?? 0),
-      pressure: weatherData.hourly.pressure_msl[idx],
-      windSpeed: Math.round(weatherData.hourly.wind_speed_10m[idx]),
-      windGust: Math.round(weatherData.hourly.wind_gusts_10m[idx] ?? 0),
-      uv: Math.round(weatherData.hourly.uv_index[idx]),
-      visibility: Math.round((weatherData.hourly.visibility[idx] ?? 10000) / 1000),
-      cloudCover: weatherData.hourly.cloud_cover[idx],
-      vapourPressureDeficit: Math.round((weatherData.hourly.vapour_pressure_deficit?.[idx] ?? 0) * 100) / 100,
-    }));
+    const hourlyTimes = h?.time;
+    const hourlyForecast = Array.isArray(hourlyTimes)
+      ? hourlyTimes.slice(0, 48).map((time: string, idx: number) => ({
+          time: new Date(time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          temp: Math.round(h?.temperature_2m?.[idx] ?? 0),
+          feelsLike: Math.round(h?.apparent_temperature?.[idx] ?? 0),
+          rainChance: h?.precipitation_probability?.[idx] || 0,
+          humidity: h?.relative_humidity_2m?.[idx] ?? 50,
+          dewPoint: Math.round(h?.dew_point_2m?.[idx] ?? 0),
+          pressure: h?.pressure_msl?.[idx] ?? 1013,
+          windSpeed: Math.round(h?.wind_speed_10m?.[idx] ?? 0),
+          windGust: Math.round(h?.wind_gusts_10m?.[idx] ?? 0),
+          uv: Math.round(h?.uv_index?.[idx] ?? 0),
+          visibility: Math.round((h?.visibility?.[idx] ?? 10000) / 1000),
+          cloudCover: h?.cloud_cover?.[idx] ?? 0,
+          vapourPressureDeficit: Math.round((h?.vapour_pressure_deficit?.[idx] ?? 0) * 100) / 100,
+        }))
+      : [];
 
     // ========================
     // DAILY FORECAST (16 days)
     // ========================
-    const dailyForecast = weatherData.daily.time.map((time: string, idx: number) => {
-      const code = weatherData.daily.weather_code[idx];
-      const cond = getWmoIcon(code);
-      return {
-        date: new Date(time).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }),
-        tempMax: Math.round(weatherData.daily.temperature_2m_max[idx]),
-        tempMin: Math.round(weatherData.daily.temperature_2m_min[idx]),
-        feelsMax: Math.round(weatherData.daily.apparent_temperature_max[idx]),
-        feelsMin: Math.round(weatherData.daily.apparent_temperature_min[idx]),
-        rainChance: weatherData.daily.precipitation_probability_max[idx] || 0,
-        rainSum: Math.round((weatherData.daily.precipitation_sum[idx] ?? 0) * 10) / 10,
-        precipitationHours: weatherData.daily.precipitation_hours?.[idx] ?? 0,
-        windSpeedMax: Math.round(weatherData.daily.wind_speed_10m_max[idx]),
-        windGustMax: Math.round(weatherData.daily.wind_gusts_10m_max[idx] ?? 0),
-        windDirection: weatherData.daily.wind_direction_10m_dominant?.[idx] ?? 0,
-        uvMax: Math.round(weatherData.daily.uv_index_max[idx]),
-        daylightDuration: Math.round((weatherData.daily.daylight_duration?.[idx] ?? 43200) / 60),
-        et0: Math.round((weatherData.daily.et0_fao_evapotranspiration?.[idx] ?? 0) * 10) / 10,
-        shortwaveRadiation: Math.round((weatherData.daily.shortwave_radiation_sum?.[idx] ?? 0) * 10) / 10,
-        summary: cond.text,
-        icon: cond.icon,
-      };
-    });
+    const dailyTimes = d?.time;
+    const dailyForecast = Array.isArray(dailyTimes)
+      ? dailyTimes.map((time: string, idx: number) => {
+          const code = d?.weather_code?.[idx] ?? 0;
+          const cond = getWmoIcon(code);
+          return {
+            date: new Date(time).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }),
+            tempMax: Math.round(d?.temperature_2m_max?.[idx] ?? 0),
+            tempMin: Math.round(d?.temperature_2m_min?.[idx] ?? 0),
+            feelsMax: Math.round(d?.apparent_temperature_max?.[idx] ?? 0),
+            feelsMin: Math.round(d?.apparent_temperature_min?.[idx] ?? 0),
+            rainChance: d?.precipitation_probability_max?.[idx] || 0,
+            rainSum: Math.round((d?.precipitation_sum?.[idx] ?? 0) * 10) / 10,
+            precipitationHours: d?.precipitation_hours?.[idx] ?? 0,
+            windSpeedMax: Math.round(d?.wind_speed_10m_max?.[idx] ?? 0),
+            windGustMax: Math.round(d?.wind_gusts_10m_max?.[idx] ?? 0),
+            windDirection: d?.wind_direction_10m_dominant?.[idx] ?? 0,
+            uvMax: Math.round(d?.uv_index_max?.[idx] ?? 0),
+            daylightDuration: Math.round((d?.daylight_duration?.[idx] ?? 43200) / 60),
+            et0: Math.round((d?.et0_fao_evapotranspiration?.[idx] ?? 0) * 10) / 10,
+            shortwaveRadiation: Math.round((d?.shortwave_radiation_sum?.[idx] ?? 0) * 10) / 10,
+            summary: cond.text,
+            icon: cond.icon,
+          };
+        })
+      : [];
 
     // ========================
     // AGRICULTURE
     // ========================
-    const soilMoisture = Math.round((weatherData.hourly.soil_moisture_0_to_7cm?.[0] ?? 0.3) * 100);
-    const soilTemp = Math.round(weatherData.hourly.soil_temperature_0_to_7cm?.[0] ?? 10);
-    const evapotranspiration = Math.round((weatherData.hourly.et0_fao_evapotranspiration?.[0] ?? 2) * 10) / 10;
-    const vapourPressureDeficit = Math.round((weatherData.hourly.vapour_pressure_deficit?.[0] ?? 0.8) * 100) / 100;
+    const soilMoisture = Math.round((h?.soil_moisture_0_to_7cm?.[0] ?? 0.3) * 100);
+    const soilTemp = Math.round(h?.soil_temperature_0_to_7cm?.[0] ?? 10);
+    const evapotranspiration = Math.round((h?.et0_fao_evapotranspiration?.[0] ?? 2) * 10) / 10;
+    const vapourPressureDeficit = Math.round((h?.vapour_pressure_deficit?.[0] ?? 0.8) * 100) / 100;
 
     let irrigationAdvice = 'Soil moisture adequate. No irrigation needed.';
     if (soilMoisture < 20) irrigationAdvice = 'CRITICAL: Severe soil moisture deficit. Immediate deep irrigation required.';
