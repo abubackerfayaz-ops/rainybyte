@@ -17,7 +17,7 @@ async function fetchMetNo(lat: number, lon: number) {
 }
 
 function metNoToCurrent(data: any): any {
-  if (!data?.properties?.timeseries?.length) return null;
+  if (!data?.properties?.timeseries?.length) return { temperature_2m: 20, relative_humidity_2m: 50, apparent_temperature: 20, precipitation: 0, weather_code: 0, cloud_cover: 50, pressure_msl: 1013, wind_speed_10m: 5, wind_direction_10m: 180, wind_gusts_10m: 8, uv_index: 1, visibility: 10000, snowfall: 0 };
   const now = data.properties.timeseries[0].data.instant.details;
   const next1 = data.properties.timeseries[0].data.next_1_hours?.details;
   const next6 = data.properties.timeseries[0].data.next_6_hours?.summary;
@@ -41,7 +41,7 @@ function metNoToCurrent(data: any): any {
 }
 
 function metNoToHourly(data: any): any {
-  if (!data?.properties?.timeseries) return null;
+  if (!data?.properties?.timeseries?.length) return { time: [], temperature_2m: [], relative_humidity_2m: [], precipitation_probability: [], precipitation: [], weather_code: [], wind_speed_10m: [], cloud_cover: [], apparent_temperature: [] };
   const times = data.properties.timeseries.slice(0, 48);
   return {
     time: times.map((t: any) => t.time),
@@ -60,7 +60,7 @@ function metNoToHourly(data: any): any {
 }
 
 function metNoToDaily(data: any): any {
-  if (!data?.properties?.timeseries) return null;
+  if (!data?.properties?.timeseries?.length) return { time: [], temperature_2m_max: [], temperature_2m_min: [], precipitation_sum: [], weather_code: [], sunrise: [], sunset: [], precipitation_probability_max: [], apparent_temperature_max: [], apparent_temperature_min: [], wind_speed_10m_max: [], wind_gusts_10m_max: [], uv_index_max: [], wind_direction_10m_dominant: [], daylight_duration: [], et0_fao_evapotranspiration: [], shortwave_radiation_sum: [], precipitation_hours: [] };
   const days = new Map<string, any[]>();
   data.properties.timeseries.forEach((t: any) => {
     const day = t.time.slice(0, 10);
