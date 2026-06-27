@@ -48,6 +48,7 @@ export default function Navigation({
   const [showPreferencesModal, setShowPreferencesModal] = useState(false);
   const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authInitialMode, setAuthInitialMode] = useState<'login' | 'signup'>('login');
   const [notifications, setNotifications] = useState<Notification[]>(mockNotifications);
   const notifRef = useRef<HTMLDivElement>(null);
   const settingsRef = useRef<HTMLDivElement>(null);
@@ -312,13 +313,12 @@ export default function Navigation({
               fontFamily: "'Plus Jakarta Sans', sans-serif",
             }}
             onClick={() => {
-              if (!user) { setShowAuthModal(true); return; }
               setShowProfile(prev => !prev); setShowNotifications(false); setShowSettings(false);
             }}
           >
             {user ? user.initials : '?'}
           </button>
-          {showProfile && user && (
+          {showProfile && (
             <div
               className="absolute top-full right-0 mt-3 w-56 rounded-2xl overflow-hidden"
               style={{
@@ -328,36 +328,59 @@ export default function Navigation({
                 boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
               }}
             >
-              <div className="px-4 py-3 border-b border-white/[0.06]">
-                <p className="text-sm font-semibold text-white" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{user.username}</p>
-                <p className="text-xs mt-0.5" style={{ color: '#71717a' }}>{user.email}</p>
-              </div>
-              <div className="p-2">
-                <button
-                  className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm hover:bg-white/[0.04] transition-colors"
-                  style={{ color: '#d4d4d8' }}
-                  onClick={() => { setShowProfile(false); setShowProfileModal(true); }}
-                >
-                  <User className="w-4 h-4" style={{ color: '#a1a1aa' }} strokeWidth={1.5} />
-                  My Profile
-                </button>
-                <button
-                  className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm hover:bg-white/[0.04] transition-colors"
-                  style={{ color: '#d4d4d8' }}
-                  onClick={() => { setShowProfile(false); setShowPreferencesModal(true); }}
-                >
-                  <Settings className="w-4 h-4" style={{ color: '#a1a1aa' }} strokeWidth={1.5} />
-                  Preferences
-                </button>
-                <button
-                  className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm hover:bg-white/[0.04] transition-colors"
-                  style={{ color: '#ef4444' }}
-                  onClick={() => { setShowProfile(false); setShowSignOutConfirm(true); }}
-                >
-                  <LogOut className="w-4 h-4" strokeWidth={1.5} />
-                  Sign Out
-                </button>
-              </div>
+              {user ? (
+                <>
+                  <div className="px-4 py-3 border-b border-white/[0.06]">
+                    <p className="text-sm font-semibold text-white" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{user.username}</p>
+                    <p className="text-xs mt-0.5" style={{ color: '#71717a' }}>{user.email}</p>
+                  </div>
+                  <div className="p-2">
+                    <button
+                      className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm hover:bg-white/[0.04] transition-colors"
+                      style={{ color: '#d4d4d8' }}
+                      onClick={() => { setShowProfile(false); setShowProfileModal(true); }}
+                    >
+                      <User className="w-4 h-4" style={{ color: '#a1a1aa' }} strokeWidth={1.5} />
+                      My Profile
+                    </button>
+                    <button
+                      className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm hover:bg-white/[0.04] transition-colors"
+                      style={{ color: '#d4d4d8' }}
+                      onClick={() => { setShowProfile(false); setShowPreferencesModal(true); }}
+                    >
+                      <Settings className="w-4 h-4" style={{ color: '#a1a1aa' }} strokeWidth={1.5} />
+                      Preferences
+                    </button>
+                    <button
+                      className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm hover:bg-white/[0.04] transition-colors"
+                      style={{ color: '#ef4444' }}
+                      onClick={() => { setShowProfile(false); setShowSignOutConfirm(true); }}
+                    >
+                      <LogOut className="w-4 h-4" strokeWidth={1.5} />
+                      Sign Out
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="p-2">
+                  <button
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm hover:bg-white/[0.04] transition-colors"
+                    style={{ color: '#d4d4d8' }}
+                    onClick={() => { setShowProfile(false); setAuthInitialMode('login'); setShowAuthModal(true); }}
+                  >
+                    <User className="w-4 h-4" style={{ color: '#a1a1aa' }} strokeWidth={1.5} />
+                    Sign In
+                  </button>
+                  <button
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm hover:bg-white/[0.04] transition-colors"
+                    style={{ color: '#d4d4d8' }}
+                    onClick={() => { setShowProfile(false); setAuthInitialMode('signup'); setShowAuthModal(true); }}
+                  >
+                    <User className="w-4 h-4" style={{ color: '#a1a1aa' }} strokeWidth={1.5} />
+                    Create Account
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -568,6 +591,8 @@ export default function Navigation({
           </div>
         </div>
       )}
+
+      <AuthModal open={showAuthModal} onClose={() => setShowAuthModal(false)} initialMode={authInitialMode} />
     </nav>
   );
 }

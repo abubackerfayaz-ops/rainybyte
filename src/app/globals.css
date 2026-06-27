@@ -67,6 +67,22 @@
   --font-weight-normal: 400;
 }
 
+html.light-theme {
+  --background: #f5f5f0;
+  --foreground: #1c1917;
+  --card: rgba(0, 0, 0, 0.03);
+  --card-foreground: #1c1917;
+  --popover: #ffffff;
+  --popover-foreground: #1c1917;
+  --secondary: rgba(0, 0, 0, 0.05);
+  --secondary-foreground: #3f3f46;
+  --muted: rgba(0, 0, 0, 0.03);
+  --muted-foreground: #71717a;
+  --border: rgba(0, 0, 0, 0.08);
+  --input: rgba(0, 0, 0, 0.05);
+  --ring: rgba(249, 115, 22, 0.3);
+}
+
 * {
   border-color: var(--border);
   outline-color: var(--ring);

@@ -7,11 +7,12 @@ import { useAuth } from '@/lib/auth-context';
 interface AuthModalProps {
   open: boolean;
   onClose: () => void;
+  initialMode?: 'login' | 'signup';
 }
 
-export default function AuthModal({ open, onClose }: AuthModalProps) {
+export default function AuthModal({ open, onClose, initialMode: im }: AuthModalProps) {
   const { signup, login } = useAuth();
-  const [mode, setMode] = useState<'login' | 'signup'>('login');
+  const [mode, setMode] = useState<'login' | 'signup'>(im || 'login');
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
