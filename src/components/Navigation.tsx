@@ -1,11 +1,9 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Search, MapPin, Bell, Settings, User, LogOut, Moon, Sun, Thermometer, X, Check, ChevronRight } from 'lucide-react';
+import { Search, MapPin, Bell, Settings, Moon, Sun, Thermometer, X, Check, ChevronRight } from 'lucide-react';
 import { useTheme } from '@/lib/theme-provider';
-import { useAuth } from '@/lib/auth-context';
 import { useUnit } from '@/lib/unit-context';
-import AuthModal from './AuthModal';
 
 interface NavigationProps {
   searchQuery: string;
@@ -38,17 +36,12 @@ export default function Navigation({
   locationName,
 }: NavigationProps) {
   const { theme, toggleTheme } = useTheme();
-  const { user, logout } = useAuth();
   const { unit, setUnit } = useUnit();
   const ref = useRef<HTMLDivElement>(null);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
-  const [showProfileModal, setShowProfileModal] = useState(false);
   const [showPreferencesModal, setShowPreferencesModal] = useState(false);
-  const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
-  const [showAuthModal, setShowAuthModal] = useState(false);
-  const [authInitialMode, setAuthInitialMode] = useState<'login' | 'signup'>('login');
   const [notifications, setNotifications] = useState<Notification[]>(mockNotifications);
   const notifRef = useRef<HTMLDivElement>(null);
   const settingsRef = useRef<HTMLDivElement>(null);
@@ -308,7 +301,7 @@ export default function Navigation({
           <button
             className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold transition-opacity hover:opacity-80"
             style={{
-              background: user ? 'linear-gradient(135deg, #f97316, #ea580c)' : 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+              background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
               color: 'white',
               fontFamily: "'Plus Jakarta Sans', sans-serif",
             }}
@@ -316,7 +309,7 @@ export default function Navigation({
               setShowProfile(prev => !prev); setShowNotifications(false); setShowSettings(false);
             }}
           >
-            {user ? user.initials : '?'}
+            ?
           </button>
           {showProfile && (
             <div
@@ -328,131 +321,22 @@ export default function Navigation({
                 boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
               }}
             >
-              {user ? (
-                <>
-                  <div className="px-4 py-3 border-b border-white/[0.06]">
-                    <p className="text-sm font-semibold text-white" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{user.username}</p>
-                    <p className="text-xs mt-0.5" style={{ color: '#71717a' }}>{user.email}</p>
-                  </div>
-                  <div className="p-2">
-                    <button
-                      className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm hover:bg-white/[0.04] transition-colors"
-                      style={{ color: '#d4d4d8' }}
-                      onClick={() => { setShowProfile(false); setShowProfileModal(true); }}
-                    >
-                      <User className="w-4 h-4" style={{ color: '#a1a1aa' }} strokeWidth={1.5} />
-                      My Profile
-                    </button>
-                    <button
-                      className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm hover:bg-white/[0.04] transition-colors"
-                      style={{ color: '#d4d4d8' }}
-                      onClick={() => { setShowProfile(false); setShowPreferencesModal(true); }}
-                    >
-                      <Settings className="w-4 h-4" style={{ color: '#a1a1aa' }} strokeWidth={1.5} />
-                      Preferences
-                    </button>
-                    <button
-                      className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm hover:bg-white/[0.04] transition-colors"
-                      style={{ color: '#ef4444' }}
-                      onClick={() => { setShowProfile(false); setShowSignOutConfirm(true); }}
-                    >
-                      <LogOut className="w-4 h-4" strokeWidth={1.5} />
-                      Sign Out
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <div className="p-2">
-                  <button
-                    className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm hover:bg-white/[0.04] transition-colors"
-                    style={{ color: '#d4d4d8' }}
-                    onClick={() => { setShowProfile(false); setAuthInitialMode('login'); setShowAuthModal(true); }}
-                  >
-                    <User className="w-4 h-4" style={{ color: '#a1a1aa' }} strokeWidth={1.5} />
-                    Sign In
-                  </button>
-                  <button
-                    className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm hover:bg-white/[0.04] transition-colors"
-                    style={{ color: '#d4d4d8' }}
-                    onClick={() => { setShowProfile(false); setAuthInitialMode('signup'); setShowAuthModal(true); }}
-                  >
-                    <User className="w-4 h-4" style={{ color: '#a1a1aa' }} strokeWidth={1.5} />
-                    Create Account
-                  </button>
-                </div>
-              )}
+              <div className="p-2">
+                <button
+                  className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm hover:bg-white/[0.04] transition-colors"
+                  style={{ color: '#d4d4d8' }}
+                  onClick={() => { setShowProfile(false); setShowPreferencesModal(true); }}
+                >
+                  <Settings className="w-4 h-4" style={{ color: '#a1a1aa' }} strokeWidth={1.5} />
+                  Preferences
+                </button>
+              </div>
             </div>
           )}
         </div>
       </div>
 
-      {/* Profile Modal */}
-      {showProfileModal && user && (
-        <div
-          className="fixed inset-0 z-[100] flex items-center justify-center"
-          style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)' }}
-          onClick={() => setShowProfileModal(false)}
-        >
-          <div
-            className="w-full max-w-sm rounded-2xl overflow-hidden"
-            style={{
-              background: 'rgba(9,9,11,0.97)',
-              border: '1px solid rgba(255,255,255,0.1)',
-              boxShadow: '0 40px 80px rgba(0,0,0,0.6)',
-            }}
-            onClick={e => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.06]">
-              <span className="text-sm font-semibold text-white" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>My Profile</span>
-              <button onClick={() => setShowProfileModal(false)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-white/[0.08] transition-colors">
-                <X className="w-4 h-4" style={{ color: '#71717a' }} />
-              </button>
-            </div>
-            <div className="p-5 space-y-5">
-              <div className="flex items-center gap-4">
-                <div
-                  className="w-14 h-14 rounded-full flex items-center justify-center text-lg font-bold"
-                  style={{
-                    background: 'linear-gradient(135deg, #f97316, #ea580c)',
-                    color: 'white',
-                    fontFamily: "'Plus Jakarta Sans', sans-serif",
-                  }}
-                >{user.initials}</div>
-                <div>
-                  <p className="text-base font-semibold text-white" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{user.username}</p>
-                  <p className="text-xs mt-0.5" style={{ color: '#71717a' }}>{user.email}</p>
-                  <p className="text-[10px] mt-1" style={{ color: '#52525b' }}>Joined June 2026</p>
-                </div>
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                {[
-                  { label: 'Saved', value: String(user.savedLocations?.length || 0) },
-                  { label: 'Records', value: String(user.climateRecords?.length || 0) },
-                  { label: 'Searches', value: '24' },
-                ].map(s => (
-                  <div key={s.label} className="text-center py-2.5 rounded-xl" style={{ background: 'rgba(255,255,255,0.04)' }}>
-                    <p className="text-lg font-bold text-white" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>{s.value}</p>
-                    <p className="text-[10px] mt-0.5" style={{ color: '#71717a' }}>{s.label}</p>
-                  </div>
-                ))}
-              </div>
-              <div className="space-y-1">
-                <p className="text-xs font-medium mb-2" style={{ color: '#a1a1aa' }}>Account Settings</p>
-                {['Edit Display Name', 'Change Avatar', 'Notification Preferences'].map(item => (
-                  <button
-                    key={item}
-                    className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm hover:bg-white/[0.04] transition-colors"
-                    style={{ color: '#d4d4d8' }}
-                  >
-                    {item}
-                    <ChevronRight className="w-3.5 h-3.5" style={{ color: '#52525b' }} />
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+
 
       {/* Preferences Modal */}
       {showPreferencesModal && (
@@ -536,63 +420,6 @@ export default function Navigation({
         </div>
       )}
 
-      {/* Sign Out Confirmation */}
-      {showSignOutConfirm && (
-        <div
-          className="fixed inset-0 z-[100] flex items-center justify-center"
-          style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)' }}
-          onClick={() => setShowSignOutConfirm(false)}
-        >
-          <div
-            className="w-full max-w-xs rounded-2xl overflow-hidden"
-            style={{
-              background: 'rgba(9,9,11,0.97)',
-              border: '1px solid rgba(255,255,255,0.1)',
-              boxShadow: '0 40px 80px rgba(0,0,0,0.6)',
-            }}
-            onClick={e => e.stopPropagation()}
-          >
-            <div className="p-6 text-center space-y-3">
-              <div
-                className="w-12 h-12 rounded-full flex items-center justify-center mx-auto"
-                style={{ background: 'rgba(239,68,68,0.15)' }}
-              >
-                <LogOut className="w-5 h-5" style={{ color: '#ef4444' }} strokeWidth={1.5} />
-              </div>
-              <p className="text-base font-semibold text-white" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Sign Out</p>
-              <p className="text-xs" style={{ color: '#71717a' }}>Are you sure you want to sign out? Your location and preferences will be reset.</p>
-            </div>
-            <div className="flex gap-2 px-6 pb-6">
-              <button
-                onClick={() => setShowSignOutConfirm(false)}
-                className="flex-1 px-4 py-2.5 rounded-xl text-sm font-medium transition-all hover:bg-white/[0.08]"
-                style={{ color: '#a1a1aa', background: 'rgba(255,255,255,0.05)', fontFamily: 'Inter, sans-serif' }}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  logout();
-                  setShowSignOutConfirm(false);
-                  setShowProfileModal(false);
-                  setShowPreferencesModal(false);
-                  setShowProfile(false);
-                  setShowSettings(false);
-                  setShowNotifications(false);
-                  setUnit('C');
-                  setNotifications(mockNotifications);
-                }}
-                className="flex-1 px-4 py-2.5 rounded-xl text-sm font-medium transition-all"
-                style={{ background: '#ef4444', color: 'white', fontFamily: 'Inter, sans-serif' }}
-              >
-                Sign Out
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <AuthModal open={showAuthModal} onClose={() => setShowAuthModal(false)} initialMode={authInitialMode} />
     </nav>
   );
 }

@@ -20,9 +20,7 @@ export function UnitProvider({ children }: { children: React.ReactNode }) {
   const [unit, setUnit] = useState<Unit>('C');
 
   const convertTemp = useCallback((celsius: number): string => {
-    if (unit === 'F') {
-      return `${Math.round(celsius * 9 / 5 + 32)}°`;
-    }
+    if (unit === 'F') return `${Math.round(celsius * 9 / 5 + 32)}°`;
     return `${Math.round(celsius)}°`;
   }, [unit]);
 

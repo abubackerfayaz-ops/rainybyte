@@ -2,7 +2,6 @@ import type { Metadata, Viewport } from "next";
 import { Sora, Inter, Space_Grotesk } from "next/font/google";
 import { ThemeProvider } from "@/lib/theme-provider";
 import { QueryProvider } from "@/lib/query-provider";
-import { AuthProvider } from "@/lib/auth-context";
 import { UnitProvider } from "@/lib/unit-context";
 import "./globals.css";
 
@@ -44,7 +43,7 @@ export const metadata: Metadata = {
   authors: [{ name: "Rainy Byte" }],
   creator: "Rainy Byte",
   publisher: "Rainy Byte",
-  metadataBase: new URL("https://rainybyte.com"),
+  metadataBase: new URL("https://rainybyte.onrender.com"),
   openGraph: {
     type: "website",
     locale: "en_US",
@@ -52,7 +51,7 @@ export const metadata: Metadata = {
     title: "Rainy Byte — AI Weather & Climate Intelligence",
     description:
       "Aggregates global weather datasets, calculates Köppen-Geiger classifications, and models local weather anomalies using Cognitive AI.",
-    url: "https://rainybyte.com",
+    url: "https://rainybyte.onrender.com",
   },
   twitter: {
     card: "summary_large_image",
@@ -101,7 +100,7 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col">
         <ThemeProvider>
           <QueryProvider>
-            <AuthProvider><UnitProvider>{children}</UnitProvider></AuthProvider>
+            <UnitProvider>{children}</UnitProvider>
           </QueryProvider>
         </ThemeProvider>
       </body>

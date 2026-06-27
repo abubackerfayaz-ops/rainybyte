@@ -3,6 +3,9 @@ import { NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
+const cache = new Map<string, { data: any; time: number }>();
+const CACHE_TTL = 5 * 60 * 1000; // 5 min
+
 interface WeatherModelInfo {
   key: string;
   name: string;
@@ -197,6 +200,12 @@ export async function GET(request: Request) {
   const latStr = searchParams.get('lat');
   const lonStr = searchParams.get('lon');
 
+  const cacheKey = `${latStr || ''}_${lonStr || ''}_${q || ''}`;
+  const cached = cache.get(cacheKey);
+  if (cached && Date.now() - cached.time < CACHE_TTL) {
+    return NextResponse.json(cached.data);
+  }
+
   let lat = 51.5074;
   let lon = -0.1278;
   let locationName = 'London, United Kingdom';
@@ -250,22 +259,27 @@ export async function GET(request: Request) {
     // ========================
     // PRIMARY FORECAST (best_match)
     // ========================
-    const forecastUrl = 'https://api.open-meteo.com/v1/forecast?' + [
-      `latitude=${lat}`,
-      `longitude=${lon}`,
+    let weatherData: any;
+    // Try primary forecast URL
+    const fullUrl = 'https://api.open-meteo.com/v1/forecast?' + [
+      `latitude=${lat}`, `longitude=${lon}`,
       'current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,rain,snowfall,weather_code,cloud_cover,pressure_msl,wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index,visibility',
-      'hourly=temperature_2m,relative_humidity_2m,dew_point_2m,apparent_temperature,precipitation_probability,precipitation,weather_code,cloud_cover,pressure_msl,wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index,visibility,vapour_pressure_deficit,soil_temperature_0_to_7cm,soil_moisture_0_to_7cm,et0_fao_evapotranspiration,lightning_potential',
-      'daily=weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,sunrise,sunset,precipitation_sum,precipitation_probability_max,precipitation_hours,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant,uv_index_max,daylight_duration,et0_fao_evapotranspiration,shortwave_radiation_sum',
-      'timezone=auto',
-      'forecast_days=7',
-      'cell_selection=land',
+      'hourly=temperature_2m,relative_humidity_2m,dew_point_2m,apparent_temperature,precipitation_probability,precipitation,weather_code,cloud_cover,pressure_msl,wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index,visibility,vapour_pressure_deficit',
+      'daily=weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,sunrise,sunset,precipitation_sum,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max,uv_index_max',
+      'timezone=auto', 'forecast_days=7', 'cell_selection=land',
     ].join('&');
-    const forecastRes = await fetch(forecastUrl, { signal: AbortSignal.timeout(20000), headers: { 'User-Agent': 'RainyByte/1.0' } });
+    let forecastRes = await fetch(fullUrl, { signal: AbortSignal.timeout(20000), headers: { 'User-Agent': 'RainyByte/1.0' } });
     if (!forecastRes.ok) {
-      const errText = await forecastRes.text().catch(() => 'unknown');
-      throw new Error(`Forecast API: ${forecastRes.status} ${errText}`);
+      // Fallback: minimal request
+      const minimalUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&hourly=temperature_2m,precipitation_probability,weather_code&daily=temperature_2m_max,temperature_2m_min,weather_code,precipitation_sum&timezone=auto&forecast_days=3`;
+      forecastRes = await fetch(minimalUrl, { signal: AbortSignal.timeout(20000), headers: { 'User-Agent': 'RainyByte/1.0' } });
+      if (!forecastRes.ok) {
+        const errText = await forecastRes.text().catch(() => 'unknown');
+        const err = JSON.parse(errText);
+        throw new Error(err?.error ? `Open-Meteo: ${err.reason || err.error}` : errText);
+      }
     }
-    const weatherData = await forecastRes.json();
+    weatherData = await forecastRes.json();
 
     // ========================
     // ENSEMBLE DATA (probabilistic)
@@ -360,33 +374,34 @@ export async function GET(request: Request) {
     // ========================
     // PROCESS CURRENT CONDITIONS
     // ========================
-    const currentCondition = getWmoIcon(weatherData.current.weather_code);
-    const dewPoint = weatherData.hourly.dew_point_2m?.[0] ?? Math.round(
-      weatherData.current.temperature_2m - ((100 - weatherData.current.relative_humidity_2m) / 5)
-    );
-    const lightningPotential = weatherData.hourly.lightning_potential?.[0]
-      ?? (weatherData.current.cloud_cover > 75 ? Math.round(weatherData.current.relative_humidity_2m * 0.4) : 0);
+    const c = weatherData?.current || {};
+    const h = weatherData?.hourly || {};
+    const d = weatherData?.daily || {};
+
+    const currentCondition = getWmoIcon(c.weather_code ?? 0);
+    const dewPoint = h.dew_point_2m?.[0] ?? Math.round(c.temperature_2m - ((100 - c.relative_humidity_2m) / 5));
+    const lightningPotential = h.lightning_potential?.[0] ?? (c.cloud_cover > 75 ? Math.round(c.relative_humidity_2m * 0.4) : 0);
 
     const current = {
-      temp: Math.round(weatherData.current.temperature_2m),
-      feelsLike: Math.round(weatherData.current.apparent_temperature),
+      temp: Math.round(c.temperature_2m ?? 0),
+      feelsLike: Math.round(c.apparent_temperature ?? c.temperature_2m ?? 0),
       dewPoint: Math.round(dewPoint),
-      humidity: weatherData.current.relative_humidity_2m,
-      pressure: weatherData.current.pressure_msl,
-      surfacePressure: weatherData.current.surface_pressure,
-      windSpeed: Math.round(weatherData.current.wind_speed_10m),
-      windDirection: weatherData.current.wind_direction_10m,
-      windGust: Math.round(weatherData.current.wind_gusts_10m),
-      cloudCover: weatherData.current.cloud_cover,
-      uvIndex: Math.round(weatherData.current.uv_index),
-      visibility: Math.round(weatherData.current.visibility / 1000),
+      humidity: c.relative_humidity_2m ?? 50,
+      pressure: c.pressure_msl ?? 1013,
+      surfacePressure: c.surface_pressure ?? 1013,
+      windSpeed: Math.round(c.wind_speed_10m ?? 0),
+      windDirection: c.wind_direction_10m ?? 0,
+      windGust: Math.round(c.wind_gusts_10m ?? 0),
+      cloudCover: c.cloud_cover ?? 0,
+      uvIndex: Math.round(c.uv_index ?? 0),
+      visibility: Math.round((c.visibility ?? 10000) / 1000),
       condition: currentCondition.text,
       icon: currentCondition.icon,
-      rain: weatherData.current.rain || 0,
-      snow: weatherData.current.snowfall || 0,
+      rain: c.rain || 0,
+      snow: c.snowfall || 0,
       lightningProbability: lightningPotential,
-      sunrise: new Date(weatherData.daily.sunrise[0]).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      sunset: new Date(weatherData.daily.sunset[0]).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      sunrise: d.sunrise?.[0] ? new Date(d.sunrise[0]).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '06:00',
+      sunset: d.sunset?.[0] ? new Date(d.sunset[0]).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '18:00',
     };
 
     let comfortIndex = 'Comfortable';
@@ -573,77 +588,24 @@ export async function GET(request: Request) {
     // ========================
     // RESPONSE
     // ========================
-    return NextResponse.json({
-      location: {
-        name: locationName,
-        lat,
-        lon,
-        elevation,
-        timezone,
-        countryCode,
-      },
+    const responseBody = {
+      location: { name: locationName, lat, lon, elevation, timezone, countryCode },
       current: { ...current, comfortIndex, aqi: usAqi },
-      activeModel: {
-        ...activeModelInfo,
-        confidence: confidenceScore,
-        spread: avgSpread,
-        modelsCompared: availableModels.length,
-      },
+      activeModel: { ...activeModelInfo, confidence: confidenceScore, spread: avgSpread, modelsCompared: availableModels.length },
       modelComparisons,
       hourlyForecast,
       dailyForecast,
-      airQuality: {
-        aqi: usAqi,
-        pm2_5,
-        pm10,
-        ozone,
-        co: carbonMonoxide,
-        no2: nitrogenDioxide,
-        so2: sulphurDioxide,
-        dust,
-        pollen,
-      },
-      agriculture: {
-        soilMoisture,
-        soilTemp,
-        evapotranspiration,
-        vapourPressureDeficit,
-        irrigationAdvice,
-        cropFrostRisk,
-      },
-      astronomy: {
-        sunrise: current.sunrise,
-        sunset: current.sunset,
-        goldenHourMorning: '05:30 – 06:15',
-        goldenHourEvening: '19:45 – 20:30',
-        blueHourMorning: '05:00 – 05:30',
-        blueHourEvening: '20:30 – 21:00',
-        moonPhase,
-        moonPhaseIcon: 'Moon',
-        moonrise: '—',
-        moonset: '—',
-        planets,
-        issTracker: {
-          visible: Math.random() > 0.55,
-          passTime: '21:42',
-          duration: '4m 30s',
-          direction: 'NW → SE',
-        },
-      },
+      airQuality: { aqi: usAqi, pm2_5, pm10, ozone, co: carbonMonoxide, no2: nitrogenDioxide, so2: sulphurDioxide, dust, pollen },
+      agriculture: { soilMoisture, soilTemp, evapotranspiration, vapourPressureDeficit, irrigationAdvice, cropFrostRisk },
+      astronomy: { sunrise: current.sunrise, sunset: current.sunset, goldenHourMorning: '05:30 – 06:15', goldenHourEvening: '19:45 – 20:30', blueHourMorning: '05:00 – 05:30', blueHourEvening: '20:30 – 21:00', moonPhase, moonPhaseIcon: 'Moon', moonrise: '—', moonset: '—', planets, issTracker: { visible: Math.random() > 0.55, passTime: '21:42', duration: '4m 30s', direction: 'NW → SE' } },
       travel: { hikingScore, beachScore, drivingScore, sailingScore, skiScore },
       marine,
       alerts,
-      dataSources: {
-        primary: 'Open-Meteo Weather Forecast API (best_match)',
-        secondary: modelKeys.filter(k => k !== activeModelKey).map(k => MODELS[k].name),
-        ensemble: 'Open-Meteo Ensemble API',
-        airQuality: 'CAMS (Copernicus Atmosphere Monitoring Service)',
-        pollen: 'CAMS Pollen (alder, birch, grass, mugwort, olive, ragweed)',
-        marine: marine ? 'Open-Meteo Marine API (WAM wave model)' : null,
-        historical: 'ERA5 (1940–present), ERA5-Land (1950–present)',
-        climate: 'CMIP6 HighResMIP (1950–2050)',
-      },
-    });
+      dataSources: { primary: 'Open-Meteo Weather Forecast API (best_match)', secondary: modelKeys.filter(k => k !== activeModelKey).map(k => MODELS[k].name), ensemble: 'Open-Meteo Ensemble API', airQuality: 'CAMS (Copernicus Atmosphere Monitoring Service)', pollen: 'CAMS Pollen (alder, birch, grass, mugwort, olive, ragweed)', marine: marine ? 'Open-Meteo Marine API (WAM wave model)' : null, historical: 'ERA5 (1940–present), ERA5-Land (1950–present)', climate: 'CMIP6 HighResMIP (1950–2050)' },
+    };
+
+    cache.set(cacheKey, { data: responseBody, time: Date.now() });
+    return NextResponse.json(responseBody);
 
   } catch (error: any) {
     console.error('Weather API error:', error?.message || error);
