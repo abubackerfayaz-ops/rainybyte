@@ -45,6 +45,7 @@ export default function Dashboard() {
   const [lat, setLat] = useState<number>(51.5074);
   const [lon, setLon] = useState<number>(-0.1278);
   const [weatherData, setWeatherData] = useState<any>(null);
+  const [unit, setUnit] = useState<'C' | 'F'>('C');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -169,6 +170,8 @@ export default function Dashboard() {
         onSuggestionClick={handleSuggestionClick}
         onSearchBlur={() => setShowSuggestions(false)}
         locationName={locationName}
+        unit={unit}
+        onUnitChange={setUnit}
       />
 
       {/* Tab navigation */}

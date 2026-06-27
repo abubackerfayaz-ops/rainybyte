@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { Search, MapPin, Bell, Settings, User, LogOut, Moon, Sun, Thermometer, X, Check, ChevronRight } from 'lucide-react';
+import { useTheme } from '@/lib/theme-provider';
 
 interface NavigationProps {
   searchQuery: string;
@@ -11,6 +12,8 @@ interface NavigationProps {
   onSuggestionClick: (s: any) => void;
   onSearchBlur: () => void;
   locationName: string;
+  unit?: 'C' | 'F';
+  onUnitChange?: (u: 'C' | 'F') => void;
 }
 
 interface Notification {
@@ -31,14 +34,20 @@ const mockNotifications: Notification[] = [
 export default function Navigation({
   searchQuery, onSearchChange, suggestions,
   showSuggestions, onSuggestionClick, onSearchBlur,
-  locationName,
+  locationName, unit: externalUnit, onUnitChange,
 }: NavigationProps) {
+  const { theme, toggleTheme } = useTheme();
   const ref = useRef<HTMLDivElement>(null);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
-  const [unit, setUnit] = useState<'C' | 'F'>('C');
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [showPreferencesModal, setShowPreferencesModal] = useState(false);
+  const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
+  const [localUnit, setLocalUnit] = useState<'C' | 'F'>('C');
   const [notifications, setNotifications] = useState<Notification[]>(mockNotifications);
+  const unit = externalUnit ?? localUnit;
+  const setUnit = onUnitChange ?? setLocalUnit;
   const notifRef = useRef<HTMLDivElement>(null);
   const settingsRef = useRef<HTMLDivElement>(null);
   const profileRef = useRef<HTMLDivElement>(null);
@@ -271,18 +280,22 @@ export default function Navigation({
                     >°F</button>
                   </div>
                 </div>
-                <div className="flex items-center justify-between px-3 py-2.5 rounded-xl hover:bg-white/[0.04] transition-colors">
+                <button
+                  className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl hover:bg-white/[0.04] transition-colors"
+                  style={{ color: '#d4d4d8' }}
+                  onClick={toggleTheme}
+                >
                   <div className="flex items-center gap-2.5">
-                    <Moon className="w-4 h-4" style={{ color: '#a1a1aa' }} strokeWidth={1.5} />
-                    <span className="text-sm" style={{ color: '#d4d4d8', fontFamily: 'Inter, sans-serif' }}>Dark Mode</span>
+                    {theme === 'dark' ? <Moon className="w-4 h-4" style={{ color: '#a1a1aa' }} strokeWidth={1.5} /> : <Sun className="w-4 h-4" style={{ color: '#a1a1aa' }} strokeWidth={1.5} />}
+                    <span className="text-sm" style={{ fontFamily: 'Inter, sans-serif' }}>{theme === 'dark' ? 'Dark Mode' : 'Light Mode'}</span>
                   </div>
                   <div
-                    className="w-5 h-5 rounded flex items-center justify-center"
-                    style={{ background: 'rgba(249,115,22,0.2)' }}
+                    className="w-5 h-5 rounded flex items-center justify-center cursor-pointer"
+                    style={{ background: theme === 'dark' ? 'rgba(249,115,22,0.2)' : 'rgba(255,255,255,0.08)' }}
                   >
-                    <Check className="w-3 h-3" style={{ color: '#f97316' }} strokeWidth={2.5} />
+                    {theme === 'dark' ? <Check className="w-3 h-3" style={{ color: '#f97316' }} strokeWidth={2.5} /> : <Sun className="w-3 h-3" style={{ color: '#71717a' }} strokeWidth={2.5} />}
                   </div>
-                </div>
+                </button>
               </div>
             </div>
           )}
@@ -316,15 +329,27 @@ export default function Navigation({
                 <p className="text-xs mt-0.5" style={{ color: '#71717a' }}>guest@rainybyte.app</p>
               </div>
               <div className="p-2">
-                <button className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm hover:bg-white/[0.04] transition-colors" style={{ color: '#d4d4d8' }}>
+                <button
+                  className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm hover:bg-white/[0.04] transition-colors"
+                  style={{ color: '#d4d4d8' }}
+                  onClick={() => { setShowProfile(false); setShowProfileModal(true); }}
+                >
                   <User className="w-4 h-4" style={{ color: '#a1a1aa' }} strokeWidth={1.5} />
                   My Profile
                 </button>
-                <button className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm hover:bg-white/[0.04] transition-colors" style={{ color: '#d4d4d8' }}>
+                <button
+                  className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm hover:bg-white/[0.04] transition-colors"
+                  style={{ color: '#d4d4d8' }}
+                  onClick={() => { setShowProfile(false); setShowPreferencesModal(true); }}
+                >
                   <Settings className="w-4 h-4" style={{ color: '#a1a1aa' }} strokeWidth={1.5} />
                   Preferences
                 </button>
-                <button className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm hover:bg-white/[0.04] transition-colors" style={{ color: '#ef4444' }}>
+                <button
+                  className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm hover:bg-white/[0.04] transition-colors"
+                  style={{ color: '#ef4444' }}
+                  onClick={() => { setShowProfile(false); setShowSignOutConfirm(true); }}
+                >
                   <LogOut className="w-4 h-4" strokeWidth={1.5} />
                   Sign Out
                 </button>
@@ -333,6 +358,211 @@ export default function Navigation({
           )}
         </div>
       </div>
+
+      {/* Profile Modal */}
+      {showProfileModal && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center"
+          style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)' }}
+          onClick={() => setShowProfileModal(false)}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl overflow-hidden"
+            style={{
+              background: 'rgba(9,9,11,0.97)',
+              border: '1px solid rgba(255,255,255,0.1)',
+              boxShadow: '0 40px 80px rgba(0,0,0,0.6)',
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.06]">
+              <span className="text-sm font-semibold text-white" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>My Profile</span>
+              <button onClick={() => setShowProfileModal(false)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-white/[0.08] transition-colors">
+                <X className="w-4 h-4" style={{ color: '#71717a' }} />
+              </button>
+            </div>
+            <div className="p-5 space-y-5">
+              <div className="flex items-center gap-4">
+                <div
+                  className="w-14 h-14 rounded-full flex items-center justify-center text-lg font-bold"
+                  style={{
+                    background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+                    color: 'white',
+                    fontFamily: "'Plus Jakarta Sans', sans-serif",
+                  }}
+                >J</div>
+                <div>
+                  <p className="text-base font-semibold text-white" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Guest User</p>
+                  <p className="text-xs mt-0.5" style={{ color: '#71717a' }}>guest@rainybyte.app</p>
+                  <p className="text-[10px] mt-1" style={{ color: '#52525b' }}>Joined June 2026</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { label: 'Saved', value: '5' },
+                  { label: 'Alerts', value: '3' },
+                  { label: 'Searches', value: '24' },
+                ].map(s => (
+                  <div key={s.label} className="text-center py-2.5 rounded-xl" style={{ background: 'rgba(255,255,255,0.04)' }}>
+                    <p className="text-lg font-bold text-white" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>{s.value}</p>
+                    <p className="text-[10px] mt-0.5" style={{ color: '#71717a' }}>{s.label}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs font-medium mb-2" style={{ color: '#a1a1aa' }}>Account Settings</p>
+                {['Edit Display Name', 'Change Avatar', 'Notification Preferences'].map(item => (
+                  <button
+                    key={item}
+                    className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm hover:bg-white/[0.04] transition-colors"
+                    style={{ color: '#d4d4d8' }}
+                  >
+                    {item}
+                    <ChevronRight className="w-3.5 h-3.5" style={{ color: '#52525b' }} />
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Preferences Modal */}
+      {showPreferencesModal && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center"
+          style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)' }}
+          onClick={() => setShowPreferencesModal(false)}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl overflow-hidden"
+            style={{
+              background: 'rgba(9,9,11,0.97)',
+              border: '1px solid rgba(255,255,255,0.1)',
+              boxShadow: '0 40px 80px rgba(0,0,0,0.6)',
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.06]">
+              <span className="text-sm font-semibold text-white" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Preferences</span>
+              <button onClick={() => setShowPreferencesModal(false)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-white/[0.08] transition-colors">
+                <X className="w-4 h-4" style={{ color: '#71717a' }} />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div className="flex items-center justify-between px-3 py-3 rounded-xl hover:bg-white/[0.04] transition-colors">
+                <div className="flex items-center gap-2.5">
+                  <Thermometer className="w-4 h-4" style={{ color: '#a1a1aa' }} strokeWidth={1.5} />
+                  <span className="text-sm" style={{ color: '#d4d4d8' }}>Temperature Unit</span>
+                </div>
+                <div className="flex items-center gap-1 bg-white/[0.06] rounded-lg p-0.5">
+                  <button
+                    onClick={() => setUnit('C')}
+                    className="px-2.5 py-1 rounded-md text-xs font-medium transition-all"
+                    style={{ background: unit === 'C' ? '#f97316' : 'transparent', color: unit === 'C' ? 'white' : '#71717a' }}
+                  >°C</button>
+                  <button
+                    onClick={() => setUnit('F')}
+                    className="px-2.5 py-1 rounded-md text-xs font-medium transition-all"
+                    style={{ background: unit === 'F' ? '#f97316' : 'transparent', color: unit === 'F' ? 'white' : '#71717a' }}
+                  >°F</button>
+                </div>
+              </div>
+              <button className="w-full flex items-center justify-between px-3 py-3 rounded-xl hover:bg-white/[0.04] transition-colors" onClick={toggleTheme}>
+                <div className="flex items-center gap-2.5">
+                  {theme === 'dark' ? <Moon className="w-4 h-4" style={{ color: '#a1a1aa' }} strokeWidth={1.5} /> : <Sun className="w-4 h-4" style={{ color: '#a1a1aa' }} strokeWidth={1.5} />}
+                  <span className="text-sm" style={{ color: '#d4d4d8' }}>{theme === 'dark' ? 'Dark Mode' : 'Light Mode'}</span>
+                </div>
+                <div className="w-5 h-5 rounded flex items-center justify-center" style={{ background: theme === 'dark' ? 'rgba(249,115,22,0.2)' : 'rgba(255,255,255,0.08)' }}>
+                  {theme === 'dark' ? <Check className="w-3 h-3" style={{ color: '#f97316' }} strokeWidth={2.5} /> : <Sun className="w-3 h-3" style={{ color: '#71717a' }} strokeWidth={2.5} />}
+                </div>
+              </button>
+              <div className="flex items-center justify-between px-3 py-3 rounded-xl hover:bg-white/[0.04] transition-colors">
+                <div className="flex items-center gap-2.5">
+                  <Bell className="w-4 h-4" style={{ color: '#a1a1aa' }} strokeWidth={1.5} />
+                  <span className="text-sm" style={{ color: '#d4d4d8' }}>Push Notifications</span>
+                </div>
+                <div
+                  className="w-10 h-5 rounded-full relative cursor-pointer transition-colors"
+                  style={{ background: 'rgba(249,115,22,0.5)' }}
+                  onClick={() => {}}
+                >
+                  <div className="w-3.5 h-3.5 rounded-full bg-white absolute top-0.5 right-0.5 transition-all" />
+                </div>
+              </div>
+              <div className="flex items-center justify-between px-3 py-3 rounded-xl hover:bg-white/[0.04] transition-colors">
+                <div className="flex items-center gap-2.5">
+                  <MapPin className="w-4 h-4" style={{ color: '#a1a1aa' }} strokeWidth={1.5} />
+                  <span className="text-sm" style={{ color: '#d4d4d8' }}>Default Location</span>
+                </div>
+                <span className="text-xs" style={{ color: '#52525b' }}>Auto</span>
+              </div>
+              <div className="flex items-center justify-between px-3 py-3 rounded-xl hover:bg-white/[0.04] transition-colors">
+                <div className="flex items-center gap-2.5">
+                  <Sun className="w-4 h-4" style={{ color: '#a1a1aa' }} strokeWidth={1.5} />
+                  <span className="text-sm" style={{ color: '#d4d4d8' }}>Language</span>
+                </div>
+                <span className="text-xs" style={{ color: '#52525b' }}>English</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Sign Out Confirmation */}
+      {showSignOutConfirm && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center"
+          style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)' }}
+          onClick={() => setShowSignOutConfirm(false)}
+        >
+          <div
+            className="w-full max-w-xs rounded-2xl overflow-hidden"
+            style={{
+              background: 'rgba(9,9,11,0.97)',
+              border: '1px solid rgba(255,255,255,0.1)',
+              boxShadow: '0 40px 80px rgba(0,0,0,0.6)',
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="p-6 text-center space-y-3">
+              <div
+                className="w-12 h-12 rounded-full flex items-center justify-center mx-auto"
+                style={{ background: 'rgba(239,68,68,0.15)' }}
+              >
+                <LogOut className="w-5 h-5" style={{ color: '#ef4444' }} strokeWidth={1.5} />
+              </div>
+              <p className="text-base font-semibold text-white" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Sign Out</p>
+              <p className="text-xs" style={{ color: '#71717a' }}>Are you sure you want to sign out? Your location and preferences will be reset.</p>
+            </div>
+            <div className="flex gap-2 px-6 pb-6">
+              <button
+                onClick={() => setShowSignOutConfirm(false)}
+                className="flex-1 px-4 py-2.5 rounded-xl text-sm font-medium transition-all hover:bg-white/[0.08]"
+                style={{ color: '#a1a1aa', background: 'rgba(255,255,255,0.05)', fontFamily: 'Inter, sans-serif' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  setShowSignOutConfirm(false);
+                  setShowProfileModal(false);
+                  setShowPreferencesModal(false);
+                  setShowProfile(false);
+                  setShowSettings(false);
+                  setShowNotifications(false);
+                  setUnit('C');
+                  setNotifications(mockNotifications);
+                }}
+                className="flex-1 px-4 py-2.5 rounded-xl text-sm font-medium transition-all"
+                style={{ background: '#ef4444', color: 'white', fontFamily: 'Inter, sans-serif' }}
+              >
+                Sign Out
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </nav>
   );
 }
