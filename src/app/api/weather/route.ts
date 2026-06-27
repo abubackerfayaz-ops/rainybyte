@@ -347,27 +347,27 @@ export async function GET(request: Request) {
     // PRIMARY FORECAST (best_match)
     // ========================
     let weatherData: any;
-    const omUrl = 'https://api.open-meteo.com/v1/forecast?' + [
-      `latitude=${lat}`, `longitude=${lon}`,
-      'current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,rain,snowfall,weather_code,cloud_cover,pressure_msl,wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index,visibility',
-      'hourly=temperature_2m,relative_humidity_2m,dew_point_2m,apparent_temperature,precipitation_probability,precipitation,weather_code,cloud_cover,pressure_msl,wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index,visibility,vapour_pressure_deficit',
-      'daily=weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,sunrise,sunset,precipitation_sum,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max,uv_index_max',
-      'timezone=auto', 'forecast_days=7', 'cell_selection=land',
-    ].join('&');
-    let forecastRes = await fetch(omUrl, { signal: AbortSignal.timeout(15000), headers: { 'User-Agent': 'RainyByte/1.0' } });
-    if (forecastRes.ok) {
-      weatherData = await forecastRes.json();
-    } else {
-      // Fallback: Met.no (no rate limits)
-      const metNo = await fetchMetNo(lat, lon);
-      if (!metNo) throw new Error('Weather services unavailable. Try again later.');
+    // Primary: Met.no (no rate limits)
+    const metNo = await fetchMetNo(lat, lon);
+    if (metNo) {
       weatherData = {
         current: metNoToCurrent(metNo),
         hourly: metNoToHourly(metNo),
         daily: metNoToDaily(metNo),
       };
+    } else {
+      // Fallback: Open-Meteo
+      const omUrl = 'https://api.open-meteo.com/v1/forecast?' + [
+        `latitude=${lat}`, `longitude=${lon}`,
+        'current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,rain,snowfall,weather_code,cloud_cover,pressure_msl,wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index,visibility',
+        'hourly=temperature_2m,relative_humidity_2m,dew_point_2m,apparent_temperature,precipitation_probability,precipitation,weather_code,cloud_cover,pressure_msl,wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index,visibility,vapour_pressure_deficit',
+        'daily=weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,sunrise,sunset,precipitation_sum,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max,uv_index_max',
+        'timezone=auto', 'forecast_days=7', 'cell_selection=land',
+      ].join('&');
+      const omRes = await fetch(omUrl, { signal: AbortSignal.timeout(15000), headers: { 'User-Agent': 'RainyByte/1.0' } });
+      if (!omRes.ok) throw new Error('Weather services unavailable. Try again later.');
+      weatherData = await omRes.json();
     }
-    weatherData = await forecastRes.json();
 
     // ========================
     // ENSEMBLE DATA (probabilistic)
