@@ -250,16 +250,16 @@ export async function GET(request: Request) {
     // ========================
     // PRIMARY FORECAST (best_match)
     // ========================
-    const params = new URLSearchParams({
-      latitude: String(lat),
-      longitude: String(lon),
-      current: 'temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,wind_direction_10m,uv_index',
-      hourly: 'temperature_2m,relative_humidity_2m,precipitation_probability,precipitation,weather_code,wind_speed_10m',
-      daily: 'temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,weather_code',
-      timezone: 'auto',
-      forecast_days: '3',
-    });
-    const forecastUrl = `https://api.open-meteo.com/v1/forecast?${params}`;
+    const forecastUrl = 'https://api.open-meteo.com/v1/forecast?' + [
+      `latitude=${lat}`,
+      `longitude=${lon}`,
+      'current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,rain,snowfall,weather_code,cloud_cover,pressure_msl,wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index,visibility',
+      'hourly=temperature_2m,relative_humidity_2m,dew_point_2m,apparent_temperature,precipitation_probability,precipitation,weather_code,cloud_cover,pressure_msl,wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index,visibility,vapour_pressure_deficit,soil_temperature_0_to_7cm,soil_moisture_0_to_7cm,et0_fao_evapotranspiration,lightning_potential',
+      'daily=weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,sunrise,sunset,precipitation_sum,precipitation_probability_max,precipitation_hours,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant,uv_index_max,daylight_duration,et0_fao_evapotranspiration,shortwave_radiation_sum',
+      'timezone=auto',
+      'forecast_days=7',
+      'cell_selection=land',
+    ].join('&');
     const forecastRes = await fetch(forecastUrl, { signal: AbortSignal.timeout(20000), headers: { 'User-Agent': 'RainyByte/1.0' } });
     if (!forecastRes.ok) {
       const errText = await forecastRes.text().catch(() => 'unknown');
