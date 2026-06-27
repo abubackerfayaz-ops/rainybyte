@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Wind, Droplets, Eye, ArrowDown } from 'lucide-react';
+import { useUnit } from '@/lib/unit-context';
 
 interface HeroSectionProps {
   location: any;
@@ -10,6 +11,7 @@ interface HeroSectionProps {
 }
 
 export default function HeroSection({ location, current, loading }: HeroSectionProps) {
+  const { unit, convertTemp } = useUnit();
   const [visible, setVisible] = useState(false);
   const [count, setCount] = useState(0);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -22,15 +24,15 @@ export default function HeroSection({ location, current, loading }: HeroSectionP
   useEffect(() => {
     if (!current) return;
     let frame = 0;
-    const target = current.temp || 0;
+    const celsius = current.temp || 0;
+    const target = unit === 'F' ? Math.round(celsius * 9 / 5 + 32) : Math.round(celsius);
     const duration = 60;
     const id = setInterval(() => {
       frame++;
       setCount(Math.round((frame / duration) * target));
       if (frame >= duration) clearInterval(id);
     }, 16);
-    return () => clearInterval(id);
-  }, [current]);
+  }, [current, unit]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -171,11 +173,11 @@ export default function HeroSection({ location, current, loading }: HeroSectionP
               backgroundClip: 'text',
             }}
           >
-            {count}°
+            {count}°{unit}
           </div>
           <div className="flex flex-col gap-2 mt-6">
             <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 15, color: '#A1A1AA', fontWeight: 400 }}>
-              Feels like <span style={{ color: '#e4e4e7', fontWeight: 500 }}>{Math.round(current.feelsLike || current.temp)}°C</span>
+              Feels like <span style={{ color: '#e4e4e7', fontWeight: 500 }}>{convertTemp(current.feelsLike || current.temp)}</span>
             </span>
             <span
               className="px-3 py-1.5 rounded-xl text-sm font-medium"
